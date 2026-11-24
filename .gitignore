@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# hasil simulasi (dibuat ulang saat dijalankan)
+hasil_csv/
+hasil_simulasi/
+
+# media besar
+*.mp4
+*.gif
+
+# Vercel & OS
+.vercel
+.DS_Store
+Thumbs.db

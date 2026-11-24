@@ -1,0 +1,5 @@
+# Dependensi untuk versi MODULAR (agv/ + run_sims.py + make_report.py).
+# Versi satu berkas simulasi_agv.py TIDAK membutuhkan apa pun selain Python 3.8+.
+numpy>=1.24
+matplotlib>=3.7
+python-docx>=1.1

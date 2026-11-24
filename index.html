@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulasi AGV Line Follower 4WD — TF4107</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#fff; --fg:#14171a; --muted:#5c6670;
+    --accent:#1f77b4; --accent2:#d1495b; --border:#dfe3e8;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font-family:ui-sans-serif,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       font-size:14px;line-height:1.45}
+  header{padding:20px 24px 8px}
+  h1{margin:0 0 4px;font-size:19px;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:12.5px}
+  main{max-width:1080px;margin:0 auto;padding:8px 20px 40px}
+  .panel{background:var(--card);border:1px solid var(--border);border-radius:10px;
+         padding:14px 16px;margin-bottom:14px}
+  .controls{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end}
+  .field{display:flex;flex-direction:column;gap:4px}
+  .field label{font-size:11.5px;color:var(--muted);text-transform:uppercase;
+               letter-spacing:.04em}
+  select,button{font:inherit;border-radius:7px;border:1px solid var(--border);
+                background:#fff;color:var(--fg);padding:7px 10px}
+  button{cursor:pointer;transition:.15s}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;
+                 font-weight:600;padding:8px 16px}
+  button.primary:hover{filter:brightness(.94)}
+  button:disabled{opacity:.55;cursor:default}
+  input[type=range]{width:130px;accent-color:var(--accent)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  #path{width:100%;height:300px}
+  #cv,#ch{width:100%;height:136px}
+  canvas{display:block;border-radius:6px}
+  .legend{display:flex;gap:14px;font-size:11.5px;color:var(--muted);margin-top:6px}
+  .legend i{display:inline-block;width:16px;height:2px;vertical-align:middle;margin-right:4px}
+  .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}
+  .m{background:#fafbfc;border:1px solid var(--border);border-radius:8px;padding:8px 10px}
+  .m .k{font-size:11px;color:var(--muted)}
+  .m .v{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+  .m .u{font-size:11px;color:var(--muted);font-weight:400}
+  .status{font-size:12.5px;color:var(--muted)}
+  .err{color:#b3261e}
+  .hint{font-size:12px;color:var(--muted);margin-top:6px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  @media (max-width:840px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Simulasi AGV Line Follower 4WD</h1>
+  <div class="sub">TF4107 Tugas Proyek 2 — dinamika nonlinear, RK4 manual, kontroler diskret 10 ms.
+    Mesin simulasi: Python serverless (Vercel).</div>
+</header>
+
+<main>
+  <div class="panel">
+    <div class="controls">
+      <div class="field">
+        <label for="skenario">Skenario</label>
+        <select id="skenario">
+          <option value="sinus" selected>Heading: trayektori sinusoid (S-curve)</option>
+          <option value="step">Kecepatan: tangga 0 → 0,35 m/s</option>
+          <option value="multi">Kecepatan: bertingkat</option>
+          <option value="ramp">Kecepatan: ramp</option>
+          <option value="gangguan">Kecepatan: gangguan 1,5 N</option>
+          <option value="psi90">Heading: 0 → 90°</option>
+          <option value="psi180">Heading: 0 → 180°</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="kontroler">Kontroler</label>
+        <select id="kontroler">
+          <option value="pid">PID cascade + feedforward</option>
+          <option value="pid1">PID satu loop</option>
+          <option value="sf">State feedback + integral</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="mscale">Massa &amp; inersia ×<span id="mscaleVal">1,0</span></label>
+        <input id="mscale" type="range" min="0.7" max="1.6" step="0.1" value="1">
+      </div>
+      <div class="field">
+        <label for="muscale">Gesek ×<span id="muscaleVal">1,0</span></label>
+        <input id="muscale" type="range" min="0.5" max="2.5" step="0.1" value="1">
+      </div>
+      <button id="run" class="primary">Jalankan simulasi</button>
+      <button id="play" title="putar ulang animasi">Putar animasi</button>
+    </div>
+    <div class="hint" id="status">siap — tekan “Jalankan simulasi”.</div>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <canvas id="path"></canvas>
+      <div class="legend">
+        <span><i style="background:#1f77b4"></i>jejak AGV</span>
+        <span><i style="background:#c3c9cf"></i>seluruh lintasan</span>
+      </div>
+    </div>
+    <div class="panel">
+      <canvas id="cv"></canvas>
+      <canvas id="ch" style="margin-top:8px"></canvas>
+      <div class="legend">
+        <span><i style="background:#1f77b4"></i>keluaran</span>
+        <span><i style="background:#9aa3ab"></i>referensi</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="metrics" id="metrics">
+      <div class="m"><div class="k" id="k1">waktu naik</div><div class="v" id="m1">–</div></div>
+      <div class="m"><div class="k" id="k2">settling 2%</div><div class="v" id="m2">–</div></div>
+      <div class="m"><div class="k" id="k3">lonjakan</div><div class="v" id="m3">–</div></div>
+      <div class="m"><div class="k" id="k4">galat tunak</div><div class="v" id="m4">–</div></div>
+      <div class="m"><div class="k" id="k5">IAE</div><div class="v" id="m5">–</div></div>
+      <div class="m"><div class="k">V puncak</div><div class="v" id="m6">–</div></div>
+    </div>
+    <div class="hint" id="params"></div>
+  </div>
+</main>
+
+<script>
+const el = id => document.getElementById(id);
+const css = (n, f) => (getComputedStyle(document.documentElement).getPropertyValue(n) || f).trim();
+const COL = { fg: css('--fg', '#14171a'), muted: css('--muted', '#5c6670'),
+              acc: css('--accent', '#1f77b4'), acc2: css('--accent2', '#d1495b'),
+              border: css('--border', '#dfe3e8') };
+
+let DATA = null, i = 0, playing = false, raf = null;
+const MODE_FILE = location.protocol === 'file:';
+
+function ctxOf(id) {
+  const cv = el(id);
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth || 420, h = cv.clientHeight || 200;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+    cv.width = Math.round(w * dpr);
+    cv.height = Math.round(h * dpr);
+  }
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  return { ctx, w, h };
+}
+
+function drawPath() {
+  const { ctx, w, h } = ctxOf('path');
+  if (!DATA) return;
+  const d = DATA, m = 24;
+  let x0 = Math.min(...d.x), x1 = Math.max(...d.x);
+  let y0 = Math.min(...d.y), y1 = Math.max(...d.y);
+  const pad = 0.15; x0 -= pad; x1 += pad; y0 -= pad; y1 += pad;
+  const s = Math.min((w - 2 * m) / (x1 - x0 || 1), (h - 2 * m) / (y1 - y0 || 1));
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  const X = v => w / 2 + (v - cx) * s, Y = v => h / 2 - (v - cy) * s;
+
+  ctx.strokeStyle = COL.border; ctx.lineWidth = .6; ctx.globalAlpha = .7;
+  const step = 0.5;
+  for (let gx = Math.ceil(x0 / step) * step; gx <= x1; gx += step) {
+    ctx.beginPath(); ctx.moveTo(X(gx), m); ctx.lineTo(X(gx), h - m); ctx.stroke();
+  }
+  for (let gy = Math.ceil(y0 / step) * step; gy <= y1; gy += step) {
+    ctx.beginPath(); ctx.moveTo(m, Y(gy)); ctx.lineTo(w - m, Y(gy)); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  ctx.strokeStyle = COL.muted; ctx.globalAlpha = .5; ctx.setLineDash([2, 3]);
+  ctx.beginPath(); ctx.moveTo(X(d.x[0]), Y(d.y[0]));
+  for (let k = 1; k < d.x.length; k++) ctx.lineTo(X(d.x[k]), Y(d.y[k]));
+  ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+
+  ctx.strokeStyle = COL.acc; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(X(d.x[0]), Y(d.y[0]));
+  for (let k = 1; k <= i; k++) ctx.lineTo(X(d.x[k]), Y(d.y[k]));
+  ctx.stroke();
+
+  // AGV: body + 4 roda + panah arah
+  // skala gambar AGV dibatasi supaya bodi tidak mendominasi peta
+  const sA = Math.min(s, 150);
+  const L = 0.22, W = 0.17, half = 0.075;
+  ctx.save(); ctx.translate(X(d.x[i]), Y(d.y[i])); ctx.rotate(-d.psi_deg[i] * Math.PI / 180);
+  ctx.fillStyle = '#d7dbdf'; ctx.strokeStyle = '#2b3036'; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.rect(-L * sA / 2, -W * sA / 2, L * sA, W * sA); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#3b4148';
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+    ctx.fillRect(sx * (L / 2 - 0.045) * sA - 0.025 * sA, sy * half * sA - 0.015 * sA,
+                 0.05 * sA, 0.03 * sA);
+  }
+  ctx.strokeStyle = COL.acc; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(L * 0.6 * sA, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(L * 0.6 * sA, 0);
+  ctx.lineTo(L * 0.6 * sA - 0.03 * sA, -0.028 * sA);
+  ctx.lineTo(L * 0.6 * sA - 0.03 * sA, 0.028 * sA);
+  ctx.closePath(); ctx.fillStyle = COL.acc; ctx.fill();
+  ctx.restore();
+
+  ctx.fillStyle = COL.muted; ctx.font = '11px system-ui,sans-serif';
+  ctx.fillText('lintasan (tampak atas)', m, 16);
+  ctx.fillText('X [m]', w - 46, h - 8);
+}
+
+function drawChart(id, series, ref, unit, title) {
+  const { ctx, w, h } = ctxOf(id);
+  if (!DATA) return;
+  const d = DATA;
+  const m = { l: 46, r: 10, t: 22, b: 22 };
+  const t = d.t, tmax = t[t.length - 1];
+  let lo = Math.min(...series, ...ref), hi = Math.max(...series, ...ref);
+  const minSpan = unit === 'deg' ? 20 : 0.05;
+  let span = Math.max(hi - lo, minSpan);
+  const mid = (hi + lo) / 2;
+  if (hi - lo < span) { lo = mid - span / 2; hi = mid + span / 2; }
+  lo -= span * .12; hi += span * .12;
+
+  const X = v => m.l + (v / (tmax || 1)) * (w - m.l - m.r);
+  const Y = v => h - m.b - ((v - lo) / (hi - lo)) * (h - m.t - m.b);
+
+  ctx.strokeStyle = COL.border; ctx.globalAlpha = .7; ctx.lineWidth = .6;
+  for (let k = 0; k <= 4; k++) {
+    const yy = m.t + k * (h - m.t - m.b) / 4;
+    ctx.beginPath(); ctx.moveTo(m.l, yy); ctx.lineTo(w - m.r, yy); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.save(); ctx.beginPath();
+  ctx.rect(m.l, m.t, w - m.l - m.r, h - m.t - m.b); ctx.clip();
+
+  ctx.strokeStyle = COL.muted; ctx.setLineDash([4, 3]); ctx.lineWidth = 1;
+  ctx.beginPath();
+  ref.forEach((v, k) => k ? ctx.lineTo(X(t[k]), Y(v)) : ctx.moveTo(X(t[k]), Y(v)));
+  ctx.stroke(); ctx.setLineDash([]);
+
+  ctx.strokeStyle = COL.acc; ctx.lineWidth = 1.7;
+  ctx.beginPath();
+  for (let k = 0; k <= i; k++) k ? ctx.lineTo(X(t[k]), Y(series[k])) : ctx.moveTo(X(t[k]), Y(series[k]));
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.strokeStyle = COL.border; ctx.beginPath();
+  ctx.moveTo(X(t[i]), m.t); ctx.lineTo(X(t[i]), h - m.b); ctx.stroke();
+  ctx.fillStyle = COL.acc; ctx.beginPath(); ctx.arc(X(t[i]), Y(series[i]), 3.2, 0, 7); ctx.fill();
+
+  ctx.fillStyle = COL.muted; ctx.font = '11px system-ui,sans-serif';
+  ctx.fillText(title, m.l, 14);
+  ctx.textAlign = 'right';
+  ctx.fillText(hi.toFixed(unit === 'deg' ? 0 : 3), m.l - 5, m.t + 8);
+  ctx.fillText(lo.toFixed(unit === 'deg' ? 0 : 3), m.l - 5, h - m.b + 2);
+  ctx.textAlign = 'left';
+  ctx.fillText(tmax.toFixed(0) + ' s', w - m.r - 16, h - 5);
+  ctx.fillStyle = COL.fg; ctx.textAlign = 'right';
+  ctx.fillText(series[i].toFixed(unit === 'deg' ? 1 : 3) + ' ' + unit, w - m.r, 14);
+  ctx.textAlign = 'left';
+}
+
+function gambar() {
+  if (!DATA) return;
+  drawPath();
+  drawChart('cv', DATA.v, DATA.v_ref, 'm/s', 'kecepatan linear');
+  drawChart('ch', DATA.psi_deg, DATA.psi_ref_deg, 'deg', 'heading');
+}
+
+function anim(now) {
+  if (!DATA) return;
+  if (playing) {
+    i += 2;
+    if (i >= DATA.t.length - 1) { i = DATA.t.length - 1; playing = false; el('play').textContent = 'Putar animasi'; }
+  }
+  gambar();
+  if (playing) raf = requestAnimationFrame(anim);
+}
+
+function kartu(n, label, nilai, satuan) {
+  const kEl = el('k' + n);
+  if (kEl) kEl.textContent = label;
+  el('m' + n).innerHTML = nilai + (satuan ? ' <span class="u">' + satuan + '</span>' : '');
+}
+
+function tampilMetrik(d) {
+  const u = d.satuan, m = d.metrik;
+  const f = (v, n = 3) => (v === null || v === undefined) ? '–' : v.toFixed(n);
+  if ('rmse' in m) {
+    kartu(1, 'galat maks', f(m.max_err, 2), u);
+    kartu(2, 'RMSE', f(m.rmse, 2), u);
+    kartu(3, 'lonjakan', '–', '');
+    kartu(4, 'galat tunak', '–', '');
+    kartu(5, 'IAE', '–', '');
+  } else {
+    kartu(1, 'waktu naik', f(m.tr), 's');
+    kartu(2, 'settling 2%', f(m.ts), 's');
+    kartu(3, 'lonjakan', f(m.MP, 2), '%');
+    kartu(4, 'galat tunak', f(m.ess, 4), u);
+    kartu(5, 'IAE', f(m.IAE, 3), u === 'deg' ? '°·s' : 'm');
+  }
+  const vmax = Math.max(...d.VL.map(Math.abs), ...d.VR.map(Math.abs));
+  kartu(6, 'V puncak', vmax.toFixed(2), 'V');
+  el('params').textContent =
+    `${d.nama} · kontroler ${d.kontroler} · m_eq = ${d.params.m_eq} kg · ` +
+    `J_ψ = ${d.params.J_psi} kg·m² · c_F = ${d.params.c_F} N/A · ` +
+    `a_v = ${d.params.a_v} s⁻¹ · b_v = ${d.params.b_v}`;
+}
+
+async function jalankan() {
+  if (MODE_FILE) {
+    el('status').className = 'status err';
+    el('status').innerHTML =
+      'Halaman ini dibuka sebagai berkas (file://), sehingga tidak ada server yang bisa ' +
+      'menjalankan simulasi. Jalankan <b>python dev_server.py</b> di folder agv-web, lalu ' +
+      'buka <a href="http://127.0.0.1:8099">http://127.0.0.1:8099</a>.';
+    return;
+  }
+  const q = new URLSearchParams({
+    skenario: el('skenario').value,
+    kontroler: el('kontroler').value,
+    m_scale: el('mscale').value,
+    mu_scale: el('muscale').value,
+  });
+  el('status').textContent = 'menjalankan simulasi di server…';
+  el('status').className = 'hint';
+  el('run').disabled = true;
+  const t0 = performance.now();
+  try {
+    const res = await fetch('/api/simulate?' + q.toString());
+    if (!res.ok) throw new Error((await res.json()).error || res.statusText);
+    DATA = await res.json();
+    i = 0; playing = false; el('play').textContent = 'Putar animasi';
+    tampilMetrik(DATA);
+    gambar();
+    el('status').textContent =
+      `selesai dalam ${Math.round(performance.now() - t0)} ms · ${DATA.t.length} titik · ` +
+      `RK4 h = 0,1 ms · Ts = 10 ms · tunda 15 ms.`;
+    // putar otomatis sekali
+    playing = true; el('play').textContent = 'Jeda';
+    raf = requestAnimationFrame(anim);
+  } catch (e) {
+    el('status').className = 'status err';
+    const jaringan = (e instanceof TypeError) || /fetch/i.test(e.message);
+    el('status').innerHTML = jaringan
+      ? 'tidak dapat menghubungi <code>/api/simulate</code>. Pastikan server lokal hidup ' +
+        '(<b>python dev_server.py</b>, lalu buka http://127.0.0.1:8099) atau, bila sudah ' +
+        'di-deploy, endpoint <code>api/simulate.py</code> ikut terunggah.'
+      : 'gagal: ' + e.message;
+  } finally {
+    el('run').disabled = false;
+  }
+}
+
+el('run').onclick = jalankan;
+el('play').onclick = () => {
+  if (!DATA) { jalankan(); return; }
+  playing = !playing; el('play').textContent = playing ? 'Jeda' : 'Putar animasi';
+  if (i >= DATA.t.length - 1) i = 0;
+  if (playing) raf = requestAnimationFrame(anim);
+};
+el('mscale').oninput = e => el('mscaleVal').textContent = Number(e.target.value).toFixed(1).replace('.', ',');
+el('muscale').oninput = e => el('muscaleVal').textContent = Number(e.target.value).toFixed(1).replace('.', ',');
+['skenario', 'kontroler'].forEach(id => el(id).onchange = jalankan);
+window.addEventListener('resize', () => gambar());
+
+jalankan();
+</script>
+</body>
+</html>
