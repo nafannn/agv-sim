@@ -47,6 +47,12 @@
   .sekat{width:1px;align-self:stretch;background:var(--border);margin:0 2px}
   .mini{padding:7px 11px;font-size:13px}
   .gbrgrid{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .gbrview{margin-top:12px;padding-top:10px;border-top:1px solid var(--border)}
+  .gbrhead{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px;font-size:13px}
+  .gbrhead .nama{font-weight:600}
+  .gbrhead .geser{margin-left:auto}
+  .gbrview img{width:100%;height:auto;display:block;border:1px solid var(--border);
+               border-radius:8px;background:#fff}
   .unduh{display:grid;grid-template-columns:1fr 1fr;gap:16px}
   @media(max-width:780px){.unduh{grid-template-columns:1fr}}
   .unduh .lbl{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;
@@ -166,7 +172,16 @@
       <button class="gbr" data-g="6_C_robust" data-nama="pengaruh parameter">Pengaruh parameter</button>
       <button class="gbr" data-g="6_D_motor" data-nama="variasi motor">Variasi motor</button>
     </div>
-    <div class="hint" id="gbrStatus" style="margin-top:10px"></div>
+    <div class="hint" id="gbrStatus" style="margin-top:8px"></div>
+    <div class="gbrview" id="gbrView" hidden>
+      <div class="gbrhead">
+        <span class="nama" id="gbrNama"></span>
+        <span class="geser"></span>
+        <button id="gbrUlang" class="mini">Muat ulang</button>
+        <button id="gbrSimpan" class="mini" disabled>Simpan gambar</button>
+      </div>
+      <img id="gbrImg" alt="gambar hasil simulasi">
+    </div>
   </div>
 
   <footer class="kredit">
@@ -627,6 +642,60 @@ function unduhPNG() {
 
   c.toBlob(b => unduh(b, namaRun('png')), 'image/png');
 }
+
+let GBR = null;
+
+function tampilkanGambar(id, nama, blob) {
+  if (GBR && GBR.url) URL.revokeObjectURL(GBR.url);
+  GBR = { id, nama, blob, url: URL.createObjectURL(blob) };
+  el('gbrImg').src = GBR.url;
+  const sM = Number(el('mscale').value).toFixed(1).replace('.', ',');
+  const sMu = Number(el('muscale').value).toFixed(1).replace('.', ',');
+  el('gbrNama').textContent = `${nama} · massa ×${sM} · gesek ×${sMu}`;
+  el('gbrView').hidden = false;
+  el('gbrSimpan').disabled = false;
+}
+
+async function muatGambar(id, nama) {
+  const label = nama || id;
+  el('gbrStatus').textContent = `membuat gambar ${label}…`;
+  const t0 = performance.now();
+  try {
+    const q = new URLSearchParams({
+      gambar: id,
+      m_scale: el('mscale').value,
+      mu_scale: el('muscale').value,
+    });
+    const res = await fetch('/api/simulate?' + q.toString());
+    if (!res.ok) throw new Error((await res.json()).error || res.statusText);
+    const blob = await res.blob();
+    tampilkanGambar(id, label, blob);
+    el('gbrStatus').textContent =
+      `${label} siap, ${Math.round(blob.size / 1024)} KB dalam ${Math.round(performance.now() - t0)} ms.`;
+  } catch (e) {
+    el('gbrStatus').textContent = 'gagal: ' + e.message + ' (coba lagi beberapa detik kemudian).';
+  }
+}
+
+document.querySelectorAll('button.gbr').forEach(b => {
+  b.onclick = () => muatGambar(b.dataset.g, b.dataset.nama);
+});
+
+el('gbrSimpan').onclick = () => {
+  if (!GBR) return;
+  const m = el('mscale').value.replace('.', 'p');
+  const mu = el('muscale').value.replace('.', 'p');
+  unduh(GBR.blob, `${GBR.id}_m${m}_mu${mu}.png`);
+};
+
+el('gbrUlang').onclick = () => { if (GBR) muatGambar(GBR.id, GBR.nama); };
+
+// slider diubah: gambar yang tampil ikut diperbarui, kalau belum ada jalankan simpanan
+['mscale', 'muscale'].forEach(id => {
+  el(id).addEventListener('change', () => {
+    if (GBR) muatGambar(GBR.id, GBR.nama);
+  });
+});
 
 el('dlpng').onclick = unduhPNG;
 el('dlcsv').onclick = unduhCSV;
