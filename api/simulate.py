@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
@@ -343,11 +344,89 @@ def run_sim(skenario="step", kontroler="pid", m_scale=1.0, mu_scale=1.0):
     }
 
 
+
+
+LITE_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
+<title>Simulasi AGV (mode ringkas)</title>
+<style>body{font-family:system-ui,sans-serif;margin:24px;color:#14171a}
+select,button{font:inherit;padding:6px 9px;border-radius:6px;border:1px solid #ccc}
+canvas{display:block;margin-top:14px;border:1px solid #ddd;border-radius:6px}
+table{border-collapse:collapse;margin-top:12px;font-size:14px}
+td,th{border:1px solid #ddd;padding:5px 9px;text-align:left}</style></head><body>
+<h2>Simulasi AGV Line Follower 4WD</h2>
+<p style="color:#666">Mode ringkas: halaman utama tidak ditemukan di bundel fungsi,
+jadi antarmuka ini dilayani langsung oleh fungsi Python.</p>
+<label>skenario <select id="s">
+<option value="sinus">heading sinusoid</option><option value="step">kecepatan tangga</option>
+<option value="psi90">heading 90</option><option value="psi180">heading 180</option>
+<option value="ramp">ramp</option><option value="gangguan">gangguan</option>
+<option value="multi">bertingkat</option></select></label>
+<label style="margin-left:8px">kontroler <select id="k">
+<option value="pid">PID cascade</option><option value="sf">SF + integral</option>
+<option value="pid1">PID 1 loop</option></select></label>
+<button id="go" style="margin-left:8px">Jalankan</button>
+<canvas id="c" width="720" height="260"></canvas>
+<table id="t"></table>
+<script>
+const $ = i => document.getElementById(i);
+$('go').onclick = async () => {
+  const r = await fetch('/api/simulate?skenario=' + $('s').value + '&kontroler=' + $('k').value);
+  const d = await r.json();
+  if (d.error) { alert(d.error); return; }
+  const cv = $('c'), ctx = cv.getContext('2d'), m = 34;
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  const deg = d.satuan === 'deg';
+  const ser = deg ? d.psi_deg : d.v, ref = deg ? d.psi_ref_deg : d.v_ref;
+  const lo = Math.min(...ser, ...ref), hi = Math.max(...ser, ...ref);
+  const X = i => m + i / (d.t.length - 1) * (cv.width - 2 * m);
+  const Y = v => cv.height - m - (v - lo) / (hi - lo || 1) * (cv.height - 2 * m);
+  ctx.strokeStyle = '#9aa3ab'; ctx.setLineDash([4, 3]);
+  ref.forEach((v, i) => i ? ctx.lineTo(X(i), Y(v)) : ctx.moveTo(X(i), Y(v))); ctx.stroke();
+  ctx.setLineDash([]); ctx.strokeStyle = '#1f77b4'; ctx.lineWidth = 1.8;
+  ctx.beginPath(); ser.forEach((v, i) => i ? ctx.lineTo(X(i), Y(v)) : ctx.moveTo(X(i), Y(v)));
+  ctx.stroke();
+  const mm = d.metrik, f = (v, n = 3) => v === undefined ? '-' : (+v).toFixed(n);
+  $('t').innerHTML = '<tr><th>metrik</th><th>nilai</th></tr>' +
+    Object.keys(mm).map(k => '<tr><td>' + k + '</td><td>' + f(mm[k]) + '</td></tr>').join('');
+};
+$('go').click();
+</script></body></html>"""
+
+
+def halaman_utama() -> bytes:
+    """Cari index.html di beberapa lokasi; kalau tidak ada, pakai halaman ringkas."""
+    akar = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for kandidat in (os.path.join(akar, "index.html"), "index.html",
+                     os.path.join(os.getcwd(), "index.html")):
+        try:
+            with open(kandidat, "rb") as f:
+                return f.read()
+        except OSError:
+            continue
+    return LITE_HTML.encode()
+
+
 # ======================================================================
 # Handler Vercel
 # ======================================================================
 class handler(BaseHTTPRequestHandler):
+    def _kirim(self, body: bytes, ctype: str, kode: int = 200):
+        self.send_response(kode)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
+        jalur = urlparse(self.path).path
+        if jalur in ("/", "/index.html"):
+            self._kirim(halaman_utama(), "text/html; charset=utf-8")
+            return
+        if not jalur.startswith("/api/simulate"):
+            self._kirim(json.dumps({"error": "rute tidak dikenal",
+                                    "path": jalur}).encode(), "application/json", 404)
+            return
         try:
             q = parse_qs(urlparse(self.path).query)
             data = run_sim(
