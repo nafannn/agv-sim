@@ -272,7 +272,8 @@ function plotInti(ctx, ox, oy, w, h, o) {
   const pw = w - pad.l - pad.r, ph = h - pad.t - pad.b;
   const tmax = o.t[o.t.length - 1] || 1;
 
-  let lo = Math.min(...o.series, ...o.ref), hi = Math.max(...o.series, ...o.ref);
+  const acuan = o.ref ? o.ref : o.batas ? o.batas : [0];
+  let lo = Math.min(...o.series, ...acuan), hi = Math.max(...o.series, ...acuan);
   const minSpan = o.unit === 'deg' ? 20 : 0.05;
   const span = Math.max(hi - lo, minSpan);
   const mid = (hi + lo) / 2;
@@ -306,10 +307,20 @@ function plotInti(ctx, ox, oy, w, h, o) {
 
   ctx.save();
   ctx.beginPath(); ctx.rect(px, py, pw, ph); ctx.clip();
-  ctx.setLineDash([5, 4]); ctx.strokeStyle = '#9aa3ab'; ctx.lineWidth = 1.2;
-  ctx.beginPath();
-  o.ref.forEach((v, k) => k ? ctx.lineTo(X(o.t[k]), Y(v)) : ctx.moveTo(X(o.t[k]), Y(v)));
-  ctx.stroke(); ctx.setLineDash([]);
+  if (o.batas) {
+    ctx.setLineDash([6, 4]); ctx.strokeStyle = '#c0c7cf'; ctx.lineWidth = 1;
+    o.batas.forEach(v => {
+      if (v < lo || v > hi) return;
+      ctx.beginPath(); ctx.moveTo(px, Y(v)); ctx.lineTo(px + pw, Y(v)); ctx.stroke();
+    });
+    ctx.setLineDash([]);
+  }
+  if (o.ref) {
+    ctx.setLineDash([5, 4]); ctx.strokeStyle = '#9aa3ab'; ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    o.ref.forEach((v, k) => k ? ctx.lineTo(X(o.t[k]), Y(v)) : ctx.moveTo(X(o.t[k]), Y(v)));
+    ctx.stroke(); ctx.setLineDash([]);
+  }
   ctx.strokeStyle = o.warna || '#1f77b4'; ctx.lineWidth = 2;
   ctx.beginPath();
   for (let k = 0; k <= o.sampai; k++) {
@@ -333,26 +344,50 @@ function plotInti(ctx, ox, oy, w, h, o) {
 
   // pembacaan nilai: hover kalau ada, kalau tidak ikuti animasi
   const nilai = o.hover != null ? o.hover : kk;
-  const teks = `${angka(o.t[nilai], 's')} s  ·  ${angka(o.series[nilai], o.unit)} ${o.unit}`;
+  const satuanTeks = o.unit === 'deg' ? 'derajat' : o.unit;
+  const teks = `${angka(o.t[nilai], 's')} s  ·  ${angka(o.series[nilai], o.unit)} ${satuanTeks}`;
   ctx.textAlign = 'right'; ctx.fillStyle = '#14171a'; ctx.font = 'bold 11.5px system-ui,sans-serif';
   ctx.fillText(teks, px + pw, oy + 16);
 }
 
-function drawChart(id, series, ref, unit, title) {
+function drawChart(id, series, ref, unit, title, batas) {
   const { ctx, w, h } = ctxOf(id);
   if (!DATA) return;
   const hv = HOVER ? HOVER.idx : null;
   plotInti(ctx, 0, 0, w, h, {
-    t: DATA.t, series, ref, unit, judul: title,
+    t: DATA.t, series, ref, unit, judul: title, batas: batas || null,
     sampai: hv != null ? DATA.t.length - 1 : i, warna: '#1f77b4', hover: hv,
   });
+}
+
+function yawRate() {
+  const t = DATA.t, psi = DATA.psi_deg, out = [0];
+  for (let k = 1; k < t.length; k++) {
+    const dt = (t[k] - t[k - 1]) || 1e-6;
+    out.push((psi[k] - psi[k - 1]) * Math.PI / 180 / dt);
+  }
+  return out;
+}
+
+function panelKedua() {
+  // skenario kecepatan -> tegangan; skenario heading -> laju yaw (seperti gambar laporan)
+  if (DATA && DATA.satuan === 'deg') {
+    return { series: yawRate(), ref: null, unit: 'rad/s', judul: 'laju yaw', batas: [3, -3] };
+  }
+  const vc = DATA.VL.map((v, k) => (v + DATA.VR[k]) / 2);
+  return { series: vc, ref: null, unit: 'V', judul: 'tegangan common-mode', batas: [6, -6] };
 }
 
 function gambar() {
   if (!DATA) return;
   drawPath();
-  drawChart('cv', DATA.v, DATA.v_ref, 'm/s', 'kecepatan linear');
-  drawChart('ch', DATA.psi_deg, DATA.psi_ref_deg, 'deg', 'heading');
+  if (DATA.satuan === 'deg') {
+    drawChart('cv', DATA.psi_deg, DATA.psi_ref_deg, 'deg', 'sudut heading');
+  } else {
+    drawChart('cv', DATA.v, DATA.v_ref, 'm/s', 'kecepatan linear');
+  }
+  const dua = panelKedua();
+  drawChart('ch', dua.series, dua.ref, dua.unit, dua.judul, dua.batas);
 }
 
 function anim(now) {
@@ -485,7 +520,7 @@ function unduhJSON() {
 
 function unduhPNG() {
   if (!DATA) return;
-  const tepi = 26, lebar = 1240, tinggiPanel = 320, kepala = 104;
+  const tepi = 26, lebar = 1240, tinggiPanel = 330, kepala = 108;
   const c = document.createElement('canvas');
   c.width = lebar;
   c.height = kepala + 2 * tinggiPanel + tepi;
@@ -493,7 +528,7 @@ function unduhPNG() {
   x.fillStyle = '#ffffff'; x.fillRect(0, 0, c.width, c.height);
 
   const m = DATA.metrik || {};
-  const f = (v, n = 3) => (v === null || v === undefined) ? '–' : v.toFixed(n).replace('.', ',');
+  const f = (v, n = 3) => (v === null || v === undefined) ? '-' : v.toFixed(n).replace('.', ',');
   const u = satuan();
   const kunci = ('rmse' in m)
     ? [['RMSE', f(m.rmse, 2) + ' ' + u], ['galat maks', f(m.max_err, 2) + ' ' + u]]
@@ -501,21 +536,24 @@ function unduhPNG() {
        ['lonjakan', f(m.MP, 2) + ' %'], ['galat tunak', f(m.ess, 4) + ' ' + u],
        ['IAE', f(m.IAE, 4)]];
 
+  const heading = DATA.satuan === 'deg';
   x.fillStyle = '#14171a'; x.font = 'bold 17px system-ui,sans-serif';
-  x.fillText(`Simulasi AGV — ${namaSkenario()}`, tepi, 34);
+  x.fillText(heading ? 'Respons heading' : 'Respons kecepatan', tepi, 34);
   x.fillStyle = '#5c6670'; x.font = '12px system-ui,sans-serif';
-  x.fillText(`kontroler ${namaKontroler()} · massa ×${el('mscale').value} · gesek ×${el('muscale').value}`
-    + ` · RK4 h = 0,1 ms · Ts = 10 ms · tunda 15 ms`, tepi, 56);
-  x.fillText(kunci.map(([a, b]) => `${a} ${b}`).join('   ·   '), tepi, 76);
+  x.fillText(`${namaSkenario()} · ${namaKontroler()} · massa ×${el('mscale').value}`
+    + ` · gesek ×${el('muscale').value}`, tepi, 56);
+  x.fillText(`RK4 h = 0,1 ms · Ts = 10 ms · tunda 15 ms   ·   `
+    + kunci.map(([a, b]) => `${a} ${b}`).join('   ·   '), tepi, 76);
 
-  const opsi = (series, ref, unit, judul, y) => ({
-    t: DATA.t, series, ref, unit, judul,
-    sampai: DATA.t.length - 1, warna: '#1f77b4', hover: null,
-  });
+  const dua = panelKedua();
+  const panel1 = heading
+    ? { series: DATA.psi_deg, ref: DATA.psi_ref_deg, unit: 'deg', judul: 'sudut heading' }
+    : { series: DATA.v, ref: DATA.v_ref, unit: 'm/s', judul: 'kecepatan linear' };
+
   plotInti(x, tepi, kepala, lebar - 2 * tepi, tinggiPanel,
-    opsi(DATA.v, DATA.v_ref, 'm/s', 'kecepatan linear', kepala));
+    Object.assign({ t: DATA.t, sampai: DATA.t.length - 1, warna: '#1f77b4', hover: null }, panel1));
   plotInti(x, tepi, kepala + tinggiPanel, lebar - 2 * tepi, tinggiPanel,
-    opsi(DATA.psi_deg, DATA.psi_ref_deg, 'deg', 'heading', kepala + tinggiPanel));
+    Object.assign({ t: DATA.t, sampai: DATA.t.length - 1, warna: '#d1495b', hover: null }, dua));
 
   c.toBlob(b => unduh(b, namaRun('png')), 'image/png');
 }
