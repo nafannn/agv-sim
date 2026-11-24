@@ -103,6 +103,15 @@
       </div>
     </div>
     <div class="aksi">
+      <div class="field">
+        <label for="banding">Bandingkan dengan</label>
+        <select id="banding">
+          <option value="" selected>tidak</option>
+          <option value="pid">PID cascade + feedforward</option>
+          <option value="pid1">PID satu loop</option>
+          <option value="sf">State feedback + integral</option>
+        </select>
+      </div>
       <button id="run" class="primary">Jalankan simulasi</button>
       <button id="play" title="putar ulang animasi">Putar animasi</button>
       <span class="sekat" aria-hidden="true"></span>
@@ -174,7 +183,7 @@ const COL = { fg: css('--fg', '#14171a'), muted: css('--muted', '#5c6670'),
               acc: css('--accent', '#1f77b4'), acc2: css('--accent2', '#d1495b'),
               border: css('--border', '#dfe3e8') };
 
-let DATA = null, i = 0, playing = false, raf = null;
+let DATA = null, DATA2 = null, i = 0, playing = false, raf = null;
 let HOVER = null;
 const MODE_FILE = location.protocol === 'file:';
 
@@ -272,7 +281,8 @@ function plotInti(ctx, ox, oy, w, h, o) {
   const pw = w - pad.l - pad.r, ph = h - pad.t - pad.b;
   const tmax = o.t[o.t.length - 1] || 1;
 
-  const acuan = o.ref ? o.ref : o.batas ? o.batas : [0];
+  const lain = o.lain && o.lain.series ? o.lain.series : null;
+  const acuan = (o.ref ? o.ref : o.batas ? o.batas : [0]).concat(lain || []);
   let lo = Math.min(...o.series, ...acuan), hi = Math.max(...o.series, ...acuan);
   const minSpan = o.unit === 'deg' ? 20 : 0.05;
   const span = Math.max(hi - lo, minSpan);
@@ -327,6 +337,15 @@ function plotInti(ctx, ox, oy, w, h, o) {
     k ? ctx.lineTo(X(o.t[k]), Y(o.series[k])) : ctx.moveTo(X(o.t[k]), Y(o.series[k]));
   }
   ctx.stroke();
+  if (lain) {
+    ctx.strokeStyle = o.lain.warna || '#d1495b'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    const batas = Math.min(o.sampai, lain.length - 1);
+    for (let k = 0; k <= batas; k++) {
+      k ? ctx.lineTo(X(o.t[k]), Y(lain[k])) : ctx.moveTo(X(o.t[k]), Y(lain[k]));
+    }
+    ctx.stroke();
+  }
   ctx.restore();
 
   const kk = Math.min(o.sampai, o.t.length - 1);
@@ -339,29 +358,46 @@ function plotInti(ctx, ox, oy, w, h, o) {
   ctx.fillStyle = '#14171a'; ctx.font = 'bold 12px system-ui,sans-serif';
   ctx.fillText(o.judul, px - 44, oy + 16);
 
+  if (o.nama) {
+    let lx = px - 44 + ctx.measureText(o.judul).width + 14;
+    ctx.font = '11px system-ui,sans-serif';
+    [[o.nama, o.warna || '#1f77b4'], [o.lain && o.lain.nama, (o.lain && o.lain.warna) || '#d1495b']]
+      .forEach(([nm, wr]) => {
+        if (!nm) return;
+        ctx.strokeStyle = wr; ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.moveTo(lx, oy + 12); ctx.lineTo(lx + 14, oy + 12); ctx.stroke();
+        ctx.fillStyle = '#5c6670';
+        ctx.fillText(nm, lx + 18, oy + 16);
+        lx += 18 + ctx.measureText(nm).width + 14;
+      });
+  }
+
   ctx.textAlign = 'center';
   ctx.fillText('waktu [s]', px + pw / 2, oy + h - 6);
 
   // pembacaan nilai: hover kalau ada, kalau tidak ikuti animasi
   const nilai = o.hover != null ? o.hover : kk;
   const satuanTeks = o.unit === 'deg' ? 'derajat' : o.unit;
-  const teks = `${angka(o.t[nilai], 's')} s  ·  ${angka(o.series[nilai], o.unit)} ${satuanTeks}`;
+  let teks = `${angka(o.t[nilai], 's')} s  ·  ${angka(o.series[nilai], o.unit)} ${satuanTeks}`;
+  if (lain) teks += `  ·  ${angka(lain[Math.min(nilai, lain.length - 1)], o.unit)}`;
   ctx.textAlign = 'right'; ctx.fillStyle = '#14171a'; ctx.font = 'bold 11.5px system-ui,sans-serif';
   ctx.fillText(teks, px + pw, oy + 16);
 }
 
-function drawChart(id, series, ref, unit, title, batas) {
+function drawChart(id, series, ref, unit, title, batas, ambilLain) {
   const { ctx, w, h } = ctxOf(id);
   if (!DATA) return;
   const hv = HOVER ? HOVER.idx : null;
   plotInti(ctx, 0, 0, w, h, {
     t: DATA.t, series, ref, unit, judul: title, batas: batas || null,
     sampai: hv != null ? DATA.t.length - 1 : i, warna: '#1f77b4', hover: hv,
+    nama: DATA2 ? namaKontroler() : null,
+    lain: (DATA2 && ambilLain) ? { series: ambilLain, warna: '#d1495b', nama: namaKontroler(el('banding').value) } : null,
   });
 }
 
-function yawRate() {
-  const t = DATA.t, psi = DATA.psi_deg, out = [0];
+function yawRate(d) {
+  const t = d.t, psi = d.psi_deg, out = [0];
   for (let k = 1; k < t.length; k++) {
     const dt = (t[k] - t[k - 1]) || 1e-6;
     out.push((psi[k] - psi[k - 1]) * Math.PI / 180 / dt);
@@ -369,12 +405,12 @@ function yawRate() {
   return out;
 }
 
-function panelKedua() {
+function panelKedua(d) {
   // skenario kecepatan -> tegangan; skenario heading -> laju yaw (seperti gambar laporan)
-  if (DATA && DATA.satuan === 'deg') {
-    return { series: yawRate(), ref: null, unit: 'rad/s', judul: 'laju yaw', batas: [3, -3] };
+  if (d.satuan === 'deg') {
+    return { series: yawRate(d), ref: null, unit: 'rad/s', judul: 'laju yaw', batas: [3, -3] };
   }
-  const vc = DATA.VL.map((v, k) => (v + DATA.VR[k]) / 2);
+  const vc = d.VL.map((v, k) => (v + d.VR[k]) / 2);
   return { series: vc, ref: null, unit: 'V', judul: 'tegangan common-mode', batas: [6, -6] };
 }
 
@@ -382,12 +418,15 @@ function gambar() {
   if (!DATA) return;
   drawPath();
   if (DATA.satuan === 'deg') {
-    drawChart('cv', DATA.psi_deg, DATA.psi_ref_deg, 'deg', 'sudut heading');
+    drawChart('cv', DATA.psi_deg, DATA.psi_ref_deg, 'deg', 'sudut heading',
+              null, DATA2 ? DATA2.psi_deg : null);
   } else {
-    drawChart('cv', DATA.v, DATA.v_ref, 'm/s', 'kecepatan linear');
+    drawChart('cv', DATA.v, DATA.v_ref, 'm/s', 'kecepatan linear',
+              null, DATA2 ? DATA2.v : null);
   }
-  const dua = panelKedua();
-  drawChart('ch', dua.series, dua.ref, dua.unit, dua.judul, dua.batas);
+  const dua = panelKedua(DATA);
+  drawChart('ch', dua.series, dua.ref, dua.unit, dua.judul, dua.batas,
+            DATA2 ? panelKedua(DATA2).series : null);
 }
 
 function anim(now) {
@@ -439,12 +478,14 @@ async function jalankan() {
       '<a href="http://127.0.0.1:8099">http://127.0.0.1:8099</a>.';
     return;
   }
-  const q = new URLSearchParams({
+  const banding = el('banding').value;
+  const dasar = {
     skenario: el('skenario').value,
     kontroler: el('kontroler').value,
     m_scale: el('mscale').value,
     mu_scale: el('muscale').value,
-  });
+  };
+  const q = new URLSearchParams(dasar);
   el('status').textContent = 'menjalankan simulasi di server…';
   el('status').className = 'hint';
   el('run').disabled = true;
@@ -453,13 +494,20 @@ async function jalankan() {
     const res = await fetch('/api/simulate?' + q.toString());
     if (!res.ok) throw new Error((await res.json()).error || res.statusText);
     DATA = await res.json();
+    DATA2 = null;
+    if (banding && banding !== dasar.kontroler) {
+      const q2 = new URLSearchParams(Object.assign({}, dasar, { kontroler: banding }));
+      const res2 = await fetch('/api/simulate?' + q2.toString());
+      if (res2.ok) DATA2 = await res2.json();
+    }
     ['dlpng', 'dlcsv', 'dljson'].forEach(id => el(id).disabled = false);
     i = 0; playing = false; el('play').textContent = 'Putar animasi';
     tampilMetrik(DATA);
     gambar();
     el('status').textContent =
-      `selesai dalam ${Math.round(performance.now() - t0)} ms · ${DATA.t.length} titik · ` +
-      `RK4 h = 0,1 ms · Ts = 10 ms · tunda 15 ms.`;
+      `selesai dalam ${Math.round(performance.now() - t0)} ms · ${DATA.t.length} titik` +
+      (DATA2 ? ` · dibandingkan dengan ${namaKontroler(banding)}` : '') +
+      ` · RK4 h = 0,1 ms · Ts = 10 ms · tunda 15 ms.`;
     // putar otomatis sekali
     playing = true; el('play').textContent = 'Jeda';
     raf = requestAnimationFrame(anim);
@@ -488,9 +536,11 @@ function namaSkenario() {
   return opt ? opt.textContent.split(':').pop().trim() : el('skenario').value;
 }
 
-function namaKontroler() {
-  const opt = el('kontroler').selectedOptions[0];
-  return opt ? opt.textContent.trim() : el('kontroler').value;
+function namaKontroler(nilai) {
+  const sel = el('kontroler');
+  const el2 = nilai || sel.value;
+  const opt = [...sel.options].find(o => o.value === el2);
+  return opt ? opt.textContent.trim() : el2;
 }
 
 function satuan() {
@@ -537,23 +587,42 @@ function unduhPNG() {
        ['IAE', f(m.IAE, 4)]];
 
   const heading = DATA.satuan === 'deg';
+  const m2 = DATA2 ? DATA2.metrik : null;
+  const namaA = DATA2 ? namaKontroler() : null;
+  const namaB = DATA2 ? namaKontroler(el('banding').value) : null;
   x.fillStyle = '#14171a'; x.font = 'bold 17px system-ui,sans-serif';
-  x.fillText(heading ? 'Respons heading' : 'Respons kecepatan', tepi, 34);
+  x.fillText((heading ? 'Respons heading' : 'Respons kecepatan')
+    + (DATA2 ? ` — ${namaKontroler()} vs ${namaKontroler(el('banding').value)}` : ''), tepi, 34);
   x.fillStyle = '#5c6670'; x.font = '12px system-ui,sans-serif';
-  x.fillText(`${namaSkenario()} · ${namaKontroler()} · massa ×${el('mscale').value}`
-    + ` · gesek ×${el('muscale').value}`, tepi, 56);
+  x.fillText(`${namaSkenario()}` + (DATA2 ? '' : ` · ${namaKontroler()}`)
+    + ` · massa ×${el('mscale').value} · gesek ×${el('muscale').value}`, tepi, 56);
   x.fillText(`RK4 h = 0,1 ms · Ts = 10 ms · tunda 15 ms   ·   `
     + kunci.map(([a, b]) => `${a} ${b}`).join('   ·   '), tepi, 76);
+  if (m2) {
+    const kunci2 = ('rmse' in m2)
+      ? [['RMSE', f(m2.rmse, 2) + ' ' + u], ['galat maks', f(m2.max_err, 2) + ' ' + u]]
+      : [['settling 2%', f(m2.ts, 2) + ' s'], ['lonjakan', f(m2.MP, 2) + ' %'],
+         ['galat tunak', f(m2.ess, 4) + ' ' + u]];
+    x.fillStyle = '#9a3b45'; x.font = '12px system-ui,sans-serif';
+    x.fillText(namaB + ': ' + kunci2.map(([a, b]) => `${a} ${b}`).join('   ·   '), tepi, 94);
+    x.fillStyle = '#5c6670';
+  }
 
-  const dua = panelKedua();
+  const dua = panelKedua(DATA);
   const panel1 = heading
     ? { series: DATA.psi_deg, ref: DATA.psi_ref_deg, unit: 'deg', judul: 'sudut heading' }
     : { series: DATA.v, ref: DATA.v_ref, unit: 'm/s', judul: 'kecepatan linear' };
 
   plotInti(x, tepi, kepala, lebar - 2 * tepi, tinggiPanel,
-    Object.assign({ t: DATA.t, sampai: DATA.t.length - 1, warna: '#1f77b4', hover: null }, panel1));
+    Object.assign({ t: DATA.t, sampai: DATA.t.length - 1, warna: '#1f77b4', hover: null,
+                    nama: namaA,
+                    lain: DATA2 ? { series: heading ? DATA2.psi_deg : DATA2.v,
+                                    warna: '#d1495b', nama: namaB } : null }, panel1));
   plotInti(x, tepi, kepala + tinggiPanel, lebar - 2 * tepi, tinggiPanel,
-    Object.assign({ t: DATA.t, sampai: DATA.t.length - 1, warna: '#d1495b', hover: null }, dua));
+    Object.assign({ t: DATA.t, sampai: DATA.t.length - 1, warna: '#1f77b4', hover: null,
+                    nama: namaA,
+                    lain: DATA2 ? { series: panelKedua(DATA2).series,
+                                    warna: '#d1495b', nama: namaB } : null }, dua));
 
   c.toBlob(b => unduh(b, namaRun('png')), 'image/png');
 }
