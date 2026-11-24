@@ -33,7 +33,7 @@
   input[type=range]{width:130px;accent-color:var(--accent)}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   #path{width:100%;height:300px}
-  #cv,#ch{width:100%;height:136px}
+  #cv,#ch{width:100%;height:196px}
   canvas{display:block;border-radius:6px}
   .legend{display:flex;gap:14px;font-size:11.5px;color:var(--muted);margin-top:6px}
   .legend i{display:inline-block;width:16px;height:2px;vertical-align:middle;margin-right:4px}
@@ -106,7 +106,7 @@
       <button id="run" class="primary">Jalankan simulasi</button>
       <button id="play" title="putar ulang animasi">Putar animasi</button>
       <span class="sekat" aria-hidden="true"></span>
-      <button id="dlpng" class="mini" disabled title="unduh grafik run ini (PNG)">Simpan PNG</button>
+      <button id="dlpng" class="mini" disabled title="unduh grafik run yang sedang tampil">Simpan PNG</button>
       <button id="dlcsv" class="mini" disabled title="unduh deret waktu titik (CSV)">Simpan CSV</button>
       <button id="dljson" class="mini" disabled title="unduh hasil lengkap (JSON)">Simpan JSON</button>
     </div>
@@ -144,7 +144,8 @@
   </div>
 
   <div class="panel" id="panelUnduh">
-    <h2 style="margin:0;font-size:15px">Gambar laporan</h2>
+    <h2 style="margin:0 0 4px;font-size:15px">Gambar laporan</h2>
+    <div class="hint" style="margin-bottom:8px">Skenarionya tetap seperti judul gambar; hanya massa dan gesek yang mengikuti slider.</div>
     <div class="gbrgrid">
       <button class="gbr" data-g="4_6_step" data-nama="4.6.1 tangga kecepatan">4.6.1 tangga kecepatan</button>
       <button class="gbr" data-g="4_7_step90" data-nama="4.7.1 heading 90°">4.7.1 heading 90°</button>
@@ -155,9 +156,7 @@
       <button class="gbr" data-g="6_C_robust" data-nama="6.3 robustness">6.3 robustness</button>
       <button class="gbr" data-g="6_D_motor" data-nama="6.4 variasi motor">6.4 variasi motor</button>
     </div>
-    <div class="hint" id="gbrStatus" style="margin-top:10px">
-      Gambar dibuat dari simulasi dengan massa dan gesek di atas.
-    </div>
+    <div class="hint" id="gbrStatus" style="margin-top:10px"></div>
   </div>
 
   <footer class="kredit">
@@ -176,6 +175,7 @@ const COL = { fg: css('--fg', '#14171a'), muted: css('--muted', '#5c6670'),
               border: css('--border', '#dfe3e8') };
 
 let DATA = null, i = 0, playing = false, raf = null;
+let HOVER = null;
 const MODE_FILE = location.protocol === 'file:';
 
 function ctxOf(id) {
@@ -244,60 +244,108 @@ function drawPath() {
   ctx.restore();
 
   ctx.fillStyle = COL.muted; ctx.font = '11px system-ui,sans-serif';
-  ctx.fillText('lintasan (tampak atas)', m, 16);
   ctx.fillText('X [m]', w - 46, h - 8);
+}
+
+function tickNilai(lo, hi, n) {
+  const span = (hi - lo) || 1;
+  const raw = span / n;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw / mag;
+  const step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10) * mag;
+  const out = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-6; v += step) {
+    out.push(Math.round(v / step) * step);
+  }
+  return out;
+}
+
+function angka(v, unit) {
+  const d = unit === 'deg' ? (Math.abs(v) >= 10 ? 0 : 1) : (Math.abs(v) >= 1 ? 2 : 3);
+  return v.toFixed(d).replace('.', ',');
+}
+
+// inti grafik: dipakai di layar maupun di berkas ekspor
+function plotInti(ctx, ox, oy, w, h, o) {
+  const pad = { l: 58, r: 16, t: 30, b: 34 };
+  const px = ox + pad.l, py = oy + pad.t;
+  const pw = w - pad.l - pad.r, ph = h - pad.t - pad.b;
+  const tmax = o.t[o.t.length - 1] || 1;
+
+  let lo = Math.min(...o.series, ...o.ref), hi = Math.max(...o.series, ...o.ref);
+  const minSpan = o.unit === 'deg' ? 20 : 0.05;
+  const span = Math.max(hi - lo, minSpan);
+  const mid = (hi + lo) / 2;
+  if (hi - lo < span) { lo = mid - span / 2; hi = mid + span / 2; }
+  const sisa = (hi - lo) * 0.12; lo -= sisa; hi += sisa;
+
+  const X = v => px + (v / tmax) * pw;
+  const Y = v => py + ph - ((v - lo) / (hi - lo)) * ph;
+
+  ctx.font = '11px system-ui,sans-serif';
+  ctx.strokeStyle = '#e5e9ee'; ctx.lineWidth = 1;
+  ctx.fillStyle = '#5c6670';
+  const yt = tickNilai(lo, hi, 4);
+  const dy = yt.length > 1 ? yt[1] - yt[0] : 1;
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  yt.forEach(v => {
+    const y = Y(v);
+    ctx.beginPath(); ctx.moveTo(px, y); ctx.lineTo(px + pw, y); ctx.stroke();
+    ctx.fillText(v.toFixed(dy >= 1 ? 0 : dy >= 0.1 ? 1 : dy >= 0.01 ? 2 : 3).replace('.', ','), px - 8, y);
+  });
+  const xt = tickNilai(0, tmax, 5);
+  const dx = xt.length > 1 ? xt[1] - xt[0] : 1;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  xt.forEach(v => {
+    const x = X(v);
+    ctx.beginPath(); ctx.moveTo(x, py); ctx.lineTo(x, py + ph); ctx.stroke();
+    ctx.fillText(v.toFixed(dx >= 1 ? 0 : 1).replace('.', ','), x, py + ph + 7);
+  });
+  ctx.strokeStyle = '#c9d0d8';
+  ctx.beginPath(); ctx.moveTo(px, py + ph); ctx.lineTo(px + pw, py + ph); ctx.stroke();
+
+  ctx.save();
+  ctx.beginPath(); ctx.rect(px, py, pw, ph); ctx.clip();
+  ctx.setLineDash([5, 4]); ctx.strokeStyle = '#9aa3ab'; ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  o.ref.forEach((v, k) => k ? ctx.lineTo(X(o.t[k]), Y(v)) : ctx.moveTo(X(o.t[k]), Y(v)));
+  ctx.stroke(); ctx.setLineDash([]);
+  ctx.strokeStyle = o.warna || '#1f77b4'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let k = 0; k <= o.sampai; k++) {
+    k ? ctx.lineTo(X(o.t[k]), Y(o.series[k])) : ctx.moveTo(X(o.t[k]), Y(o.series[k]));
+  }
+  ctx.stroke();
+  ctx.restore();
+
+  const kk = Math.min(o.sampai, o.t.length - 1);
+  ctx.strokeStyle = '#d3d9e0'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(X(o.t[kk]), py); ctx.lineTo(X(o.t[kk]), py + ph); ctx.stroke();
+  ctx.fillStyle = o.warna || '#1f77b4';
+  ctx.beginPath(); ctx.arc(X(o.t[kk]), Y(o.series[kk]), 3.4, 0, 7); ctx.fill();
+
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = '#14171a'; ctx.font = 'bold 12px system-ui,sans-serif';
+  ctx.fillText(o.judul, px - 44, oy + 16);
+
+  ctx.textAlign = 'center';
+  ctx.fillText('waktu [s]', px + pw / 2, oy + h - 6);
+
+  // pembacaan nilai: hover kalau ada, kalau tidak ikuti animasi
+  const nilai = o.hover != null ? o.hover : kk;
+  const teks = `${angka(o.t[nilai], 's')} s  ·  ${angka(o.series[nilai], o.unit)} ${o.unit}`;
+  ctx.textAlign = 'right'; ctx.fillStyle = '#14171a'; ctx.font = 'bold 11.5px system-ui,sans-serif';
+  ctx.fillText(teks, px + pw, oy + 16);
 }
 
 function drawChart(id, series, ref, unit, title) {
   const { ctx, w, h } = ctxOf(id);
   if (!DATA) return;
-  const d = DATA;
-  const m = { l: 46, r: 10, t: 22, b: 22 };
-  const t = d.t, tmax = t[t.length - 1];
-  let lo = Math.min(...series, ...ref), hi = Math.max(...series, ...ref);
-  const minSpan = unit === 'deg' ? 20 : 0.05;
-  let span = Math.max(hi - lo, minSpan);
-  const mid = (hi + lo) / 2;
-  if (hi - lo < span) { lo = mid - span / 2; hi = mid + span / 2; }
-  lo -= span * .12; hi += span * .12;
-
-  const X = v => m.l + (v / (tmax || 1)) * (w - m.l - m.r);
-  const Y = v => h - m.b - ((v - lo) / (hi - lo)) * (h - m.t - m.b);
-
-  ctx.strokeStyle = COL.border; ctx.globalAlpha = .7; ctx.lineWidth = .6;
-  for (let k = 0; k <= 4; k++) {
-    const yy = m.t + k * (h - m.t - m.b) / 4;
-    ctx.beginPath(); ctx.moveTo(m.l, yy); ctx.lineTo(w - m.r, yy); ctx.stroke();
-  }
-  ctx.globalAlpha = 1;
-  ctx.save(); ctx.beginPath();
-  ctx.rect(m.l, m.t, w - m.l - m.r, h - m.t - m.b); ctx.clip();
-
-  ctx.strokeStyle = COL.muted; ctx.setLineDash([4, 3]); ctx.lineWidth = 1;
-  ctx.beginPath();
-  ref.forEach((v, k) => k ? ctx.lineTo(X(t[k]), Y(v)) : ctx.moveTo(X(t[k]), Y(v)));
-  ctx.stroke(); ctx.setLineDash([]);
-
-  ctx.strokeStyle = COL.acc; ctx.lineWidth = 1.7;
-  ctx.beginPath();
-  for (let k = 0; k <= i; k++) k ? ctx.lineTo(X(t[k]), Y(series[k])) : ctx.moveTo(X(t[k]), Y(series[k]));
-  ctx.stroke();
-  ctx.restore();
-
-  ctx.strokeStyle = COL.border; ctx.beginPath();
-  ctx.moveTo(X(t[i]), m.t); ctx.lineTo(X(t[i]), h - m.b); ctx.stroke();
-  ctx.fillStyle = COL.acc; ctx.beginPath(); ctx.arc(X(t[i]), Y(series[i]), 3.2, 0, 7); ctx.fill();
-
-  ctx.fillStyle = COL.muted; ctx.font = '11px system-ui,sans-serif';
-  ctx.fillText(title, m.l, 14);
-  ctx.textAlign = 'right';
-  ctx.fillText(hi.toFixed(unit === 'deg' ? 0 : 3), m.l - 5, m.t + 8);
-  ctx.fillText(lo.toFixed(unit === 'deg' ? 0 : 3), m.l - 5, h - m.b + 2);
-  ctx.textAlign = 'left';
-  ctx.fillText(tmax.toFixed(0) + ' s', w - m.r - 16, h - 5);
-  ctx.fillStyle = COL.fg; ctx.textAlign = 'right';
-  ctx.fillText(series[i].toFixed(unit === 'deg' ? 1 : 3) + ' ' + unit, w - m.r, 14);
-  ctx.textAlign = 'left';
+  const hv = HOVER ? HOVER.idx : null;
+  plotInti(ctx, 0, 0, w, h, {
+    t: DATA.t, series, ref, unit, judul: title,
+    sampai: hv != null ? DATA.t.length - 1 : i, warna: '#1f77b4', hover: hv,
+  });
 }
 
 function gambar() {
@@ -309,7 +357,7 @@ function gambar() {
 
 function anim(now) {
   if (!DATA) return;
-  if (playing) {
+  if (playing && !HOVER) {
     i += 2;
     if (i >= DATA.t.length - 1) { i = DATA.t.length - 1; playing = false; el('play').textContent = 'Putar animasi'; }
   }
@@ -400,6 +448,20 @@ function unduh(blob, nama) {
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
 
+function namaSkenario() {
+  const opt = el('skenario').selectedOptions[0];
+  return opt ? opt.textContent.split(':').pop().trim() : el('skenario').value;
+}
+
+function namaKontroler() {
+  const opt = el('kontroler').selectedOptions[0];
+  return opt ? opt.textContent.trim() : el('kontroler').value;
+}
+
+function satuan() {
+  return DATA && DATA.satuan === 'deg' ? '°' : 'm/s';
+}
+
 function namaRun(ext) {
   const m = el('mscale').value.replace('.', 'p');
   const mu = el('muscale').value.replace('.', 'p');
@@ -423,55 +485,40 @@ function unduhJSON() {
 
 function unduhPNG() {
   if (!DATA) return;
-  const w = 1000, tinggi = 300, atas = 92;
+  const tepi = 26, lebar = 1240, tinggiPanel = 320, kepala = 104;
   const c = document.createElement('canvas');
-  c.width = w; c.height = atas + 3 * tinggi + 16;
+  c.width = lebar;
+  c.height = kepala + 2 * tinggiPanel + tepi;
   const x = c.getContext('2d');
   x.fillStyle = '#ffffff'; x.fillRect(0, 0, c.width, c.height);
-  x.fillStyle = '#111111'; x.font = 'bold 16px system-ui,sans-serif';
-  x.fillText(`AGV · ${DATA.skenario} · ${DATA.kontroler} · massa ×${el('mscale').value} · gesek ×${el('muscale').value}`, 24, 32);
-  x.fillStyle = '#555555'; x.font = '12px system-ui,sans-serif';
-  x.fillText('RK4 h = 0,1 ms · Ts = 10 ms · tunda 15 ms · dihitung saat run', 24, 52);
+
   const m = DATA.metrik || {};
-  const ringkas = Object.keys(m).filter(k => typeof m[k] === 'number')
-    .map(k => `${k} = ${m[k].toFixed(3)}`).join('   ');
-  x.fillText(ringkas, 24, 70);
-  const ids = ['path', 'cv', 'ch'];
-  const judul = ['lintasan AGV (tampak atas)', 'kecepatan linear', 'heading'];
-  ids.forEach((id, n) => {
-    x.fillStyle = '#111111'; x.font = 'bold 12px system-ui,sans-serif';
-    x.fillText(judul[n], 24, atas + n * tinggi - 6);
-    x.drawImage(el(id), 20, atas + n * tinggi, w - 40, tinggi - 24);
+  const f = (v, n = 3) => (v === null || v === undefined) ? '–' : v.toFixed(n).replace('.', ',');
+  const u = satuan();
+  const kunci = ('rmse' in m)
+    ? [['RMSE', f(m.rmse, 2) + ' ' + u], ['galat maks', f(m.max_err, 2) + ' ' + u]]
+    : [['waktu naik', f(m.tr, 2) + ' s'], ['settling 2%', f(m.ts, 2) + ' s'],
+       ['lonjakan', f(m.MP, 2) + ' %'], ['galat tunak', f(m.ess, 4) + ' ' + u],
+       ['IAE', f(m.IAE, 4)]];
+
+  x.fillStyle = '#14171a'; x.font = 'bold 17px system-ui,sans-serif';
+  x.fillText(`Simulasi AGV — ${namaSkenario()}`, tepi, 34);
+  x.fillStyle = '#5c6670'; x.font = '12px system-ui,sans-serif';
+  x.fillText(`kontroler ${namaKontroler()} · massa ×${el('mscale').value} · gesek ×${el('muscale').value}`
+    + ` · RK4 h = 0,1 ms · Ts = 10 ms · tunda 15 ms`, tepi, 56);
+  x.fillText(kunci.map(([a, b]) => `${a} ${b}`).join('   ·   '), tepi, 76);
+
+  const opsi = (series, ref, unit, judul, y) => ({
+    t: DATA.t, series, ref, unit, judul,
+    sampai: DATA.t.length - 1, warna: '#1f77b4', hover: null,
   });
+  plotInti(x, tepi, kepala, lebar - 2 * tepi, tinggiPanel,
+    opsi(DATA.v, DATA.v_ref, 'm/s', 'kecepatan linear', kepala));
+  plotInti(x, tepi, kepala + tinggiPanel, lebar - 2 * tepi, tinggiPanel,
+    opsi(DATA.psi_deg, DATA.psi_ref_deg, 'deg', 'heading', kepala + tinggiPanel));
+
   c.toBlob(b => unduh(b, namaRun('png')), 'image/png');
 }
-
-document.querySelectorAll('button.gbr').forEach(b => {
-  b.onclick = async () => {
-    const id = b.dataset.g, teks = b.textContent;
-    b.disabled = true; b.textContent = 'membuat…';
-    el('gbrStatus').textContent = `membuat gambar ${b.dataset.nama}…`;
-    const t0 = performance.now();
-    try {
-      const q = new URLSearchParams({
-        gambar: id,
-        m_scale: el('mscale').value,
-        mu_scale: el('muscale').value,
-      });
-      const res = await fetch('/api/simulate?' + q.toString());
-      if (!res.ok) throw new Error((await res.json()).error || res.statusText);
-      const blob = await res.blob();
-      const nama = `${id}_m${el('mscale').value}_mu${el('muscale').value}.png`;
-      unduh(blob, nama);
-      el('gbrStatus').textContent =
-        `${b.dataset.nama} selesai, ${Math.round(blob.size / 1024)} KB dalam ${Math.round(performance.now() - t0)} ms.`;
-    } catch (e) {
-      el('gbrStatus').textContent = 'gagal: ' + e.message + ' (coba muat ulang beberapa detik lagi).';
-    } finally {
-      b.disabled = false; b.textContent = teks;
-    }
-  };
-});
 
 el('dlpng').onclick = unduhPNG;
 el('dlcsv').onclick = unduhCSV;
@@ -487,6 +534,24 @@ el('play').onclick = () => {
 el('mscale').oninput = e => el('mscaleVal').textContent = Number(e.target.value).toFixed(1).replace('.', ',');
 el('muscale').oninput = e => el('muscaleVal').textContent = Number(e.target.value).toFixed(1).replace('.', ',');
 ['skenario', 'kontroler'].forEach(id => el(id).onchange = jalankan);
+['cv', 'ch'].forEach(id => {
+  const cv = el(id);
+  const posisi = ev => {
+    const r = cv.getBoundingClientRect();
+    const kiri = 58, kanan = 16;
+    const fraksi = Math.min(1, Math.max(0, (ev.clientX - r.left - kiri) / (r.width - kiri - kanan)));
+    const t = fraksi * (DATA ? DATA.t[DATA.t.length - 1] : 1);
+    let idx = 0;
+    if (DATA) {
+      idx = DATA.t.findIndex(v => v >= t);
+      if (idx < 0) idx = DATA.t.length - 1;
+    }
+    return { id, idx };
+  };
+  cv.addEventListener('mousemove', ev => { if (!DATA) return; HOVER = posisi(ev); gambar(); });
+  cv.addEventListener('mouseleave', () => { HOVER = null; gambar(); });
+});
+
 window.addEventListener('resize', () => gambar());
 
 jalankan();
