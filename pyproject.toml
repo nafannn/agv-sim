@@ -1,2 +1,12 @@
 [tool.vercel]
 entrypoint = "api.simulate:handler"
+
+[project]
+name = "agv-sim"
+version = "0.1.0"
+description = "Simulasi AGV line follower 4WD (TF4107)"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26,<3",
+    "matplotlib>=3.8,<4",
+]

@@ -43,6 +43,10 @@
   .m .v{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
   .m .u{font-size:11px;color:var(--muted);font-weight:400}
   .status{font-size:12.5px;color:var(--muted)}
+  .aksi{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
+  .sekat{width:1px;align-self:stretch;background:var(--border);margin:0 2px}
+  .mini{padding:7px 11px;font-size:13px}
+  .gbrgrid{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
   .unduh{display:grid;grid-template-columns:1fr 1fr;gap:16px}
   @media(max-width:780px){.unduh{grid-template-columns:1fr}}
   .unduh .lbl{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;
@@ -63,8 +67,7 @@
 <body>
 <header>
   <h1>Simulasi AGV Line Follower 4WD</h1>
-  <div class="sub">TF4107 Tugas Proyek 2 — dinamika nonlinear, RK4 manual, kontroler diskret 10 ms.
-    Mesin simulasi: Python serverless (Vercel).</div>
+  <div class="sub">TF4107 Tugas Proyek 2. Dinamika nonlinear, RK4 manual, kontroler diskret 10 ms. Mesin simulasi berjalan di Vercel.</div>
 </header>
 
 <main>
@@ -98,10 +101,16 @@
         <label for="muscale">Gesek ×<span id="muscaleVal">1,0</span></label>
         <input id="muscale" type="range" min="0.5" max="2.5" step="0.1" value="1">
       </div>
+    </div>
+    <div class="aksi">
       <button id="run" class="primary">Jalankan simulasi</button>
       <button id="play" title="putar ulang animasi">Putar animasi</button>
+      <span class="sekat" aria-hidden="true"></span>
+      <button id="dlpng" class="mini" disabled title="unduh grafik run ini (PNG)">Simpan PNG</button>
+      <button id="dlcsv" class="mini" disabled title="unduh deret waktu titik (CSV)">Simpan CSV</button>
+      <button id="dljson" class="mini" disabled title="unduh hasil lengkap (JSON)">Simpan JSON</button>
     </div>
-    <div class="hint" id="status">siap — tekan “Jalankan simulasi”.</div>
+    <div class="hint" id="status">tekan “Jalankan simulasi” untuk mulai.</div>
   </div>
 
   <div class="grid">
@@ -135,38 +144,20 @@
   </div>
 
   <div class="panel" id="panelUnduh">
-    <h2 style="margin:0 0 6px;font-size:15px">Gambar laporan</h2>
-    <p class="hint" style="margin:0 0 12px">
-      Delapan gambar dokumen <b>dirender ulang saat diminta</b> — bukan berkas jadi.
-      Klik = server menjalankan simulasi (RK4, parameter massa/gesek di bawah) lalu
-      menggambar dengan matplotlib. Butuh ±1–4 detik.
-    </p>
-    <div class="unduh">
-      <div>
-        <div class="lbl">Render ulang gambar dokumen</div>
-        <button class="gbr" data-g="4_6_step">Gambar 4.6.1 · tangga &amp; V_c</button>
-        <button class="gbr" data-g="4_7_step90">Gambar 4.7.1 · heading 90°</button>
-        <button class="gbr" data-g="4_7_step180">Gambar 4.7.2 · heading 180°</button>
-        <button class="gbr" data-g="5_7_all">Gambar 5.7.1 · SF vs PID</button>
-        <button class="gbr" data-g="6_A_speed">Gambar 6.1 · lima skenario kecepatan</button>
-        <button class="gbr" data-g="6_B_pos">Gambar 6.2 · empat skenario posisi</button>
-        <button class="gbr" data-g="6_C_robust">Gambar 6.3 · robustness</button>
-        <button class="gbr" data-g="6_D_motor">Gambar 6.4 · variasi motor</button>
-        <div class="hint" style="margin-top:6px">
-          Flowchart B.1/B.2 adalah diagram, bukan hasil simulasi — hanya ada di dokumen.
-        </div>
-      </div>
-      <div>
-        <div class="lbl">Hasil run terakhir</div>
-        <button id="dlpng" disabled>PNG grafik</button>
-        <button id="dlcsv" disabled>CSV titik</button>
-        <button id="dljson" disabled>JSON lengkap</button>
-        <div class="hint" style="margin-top:6px">
-          Memakai h = 0,1 ms (sama dengan tabel laporan), bukan h render.
-        </div>
-      </div>
+    <h2 style="margin:0;font-size:15px">Gambar laporan</h2>
+    <div class="gbrgrid">
+      <button class="gbr" data-g="4_6_step" data-nama="4.6.1 tangga kecepatan">4.6.1 tangga kecepatan</button>
+      <button class="gbr" data-g="4_7_step90" data-nama="4.7.1 heading 90°">4.7.1 heading 90°</button>
+      <button class="gbr" data-g="4_7_step180" data-nama="4.7.2 heading 180°">4.7.2 heading 180°</button>
+      <button class="gbr" data-g="5_7_all" data-nama="5.7.1 SF vs PID">5.7.1 SF vs PID</button>
+      <button class="gbr" data-g="6_A_speed" data-nama="6.1 kecepatan, 5 skenario">6.1 kecepatan, 5 skenario</button>
+      <button class="gbr" data-g="6_B_pos" data-nama="6.2 posisi, 4 skenario">6.2 posisi, 4 skenario</button>
+      <button class="gbr" data-g="6_C_robust" data-nama="6.3 robustness">6.3 robustness</button>
+      <button class="gbr" data-g="6_D_motor" data-nama="6.4 variasi motor">6.4 variasi motor</button>
     </div>
-    <div class="hint" id="gbrStatus"></div>
+    <div class="hint" id="gbrStatus" style="margin-top:10px">
+      Gambar dibuat dari simulasi dengan massa dan gesek di atas.
+    </div>
   </div>
 
   <footer class="kredit">
@@ -360,9 +351,9 @@ async function jalankan() {
   if (MODE_FILE) {
     el('status').className = 'status err';
     el('status').innerHTML =
-      'Halaman ini dibuka sebagai berkas (file://), sehingga tidak ada server yang bisa ' +
-      'menjalankan simulasi. Jalankan <b>python dev_server.py</b> di folder agv-web, lalu ' +
-      'buka <a href="http://127.0.0.1:8099">http://127.0.0.1:8099</a>.';
+      'Halaman dibuka sebagai berkas, jadi simulasi tidak bisa jalan. Jalankan ' +
+      '<b>python dev_server.py</b> lalu buka ' +
+      '<a href="http://127.0.0.1:8099">http://127.0.0.1:8099</a>.';
     return;
   }
   const q = new URLSearchParams({
@@ -393,9 +384,8 @@ async function jalankan() {
     el('status').className = 'status err';
     const jaringan = (e instanceof TypeError) || /fetch/i.test(e.message);
     el('status').innerHTML = jaringan
-      ? 'tidak dapat menghubungi <code>/api/simulate</code>. Pastikan server lokal hidup ' +
-        '(<b>python dev_server.py</b>, lalu buka http://127.0.0.1:8099) atau, bila sudah ' +
-        'di-deploy, endpoint <code>api/simulate.py</code> ikut terunggah.'
+      ? 'tidak tersambung ke server simulasi. Kalau di lokal, jalankan ' +
+        '<b>python dev_server.py</b> lalu buka http://127.0.0.1:8099.'
       : 'gagal: ' + e.message;
   } finally {
     el('run').disabled = false;
@@ -460,7 +450,7 @@ document.querySelectorAll('button.gbr').forEach(b => {
   b.onclick = async () => {
     const id = b.dataset.g, teks = b.textContent;
     b.disabled = true; b.textContent = 'membuat…';
-    el('gbrStatus').textContent = `merender ${id}: simulasi + matplotlib…`;
+    el('gbrStatus').textContent = `membuat gambar ${b.dataset.nama}…`;
     const t0 = performance.now();
     try {
       const q = new URLSearchParams({
@@ -474,9 +464,9 @@ document.querySelectorAll('button.gbr').forEach(b => {
       const nama = `${id}_m${el('mscale').value}_mu${el('muscale').value}.png`;
       unduh(blob, nama);
       el('gbrStatus').textContent =
-        `${nama} · ${Math.round(blob.size / 1024)} KB · ${Math.round(performance.now() - t0)} ms`;
+        `${b.dataset.nama} selesai, ${Math.round(blob.size / 1024)} KB dalam ${Math.round(performance.now() - t0)} ms.`;
     } catch (e) {
-      el('gbrStatus').textContent = 'gagal: ' + e.message;
+      el('gbrStatus').textContent = 'gagal: ' + e.message + ' (coba muat ulang beberapa detik lagi).';
     } finally {
       b.disabled = false; b.textContent = teks;
     }
