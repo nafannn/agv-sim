@@ -43,6 +43,14 @@
   .m .v{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
   .m .u{font-size:11px;color:var(--muted);font-weight:400}
   .status{font-size:12.5px;color:var(--muted)}
+  .unduh{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:780px){.unduh{grid-template-columns:1fr}}
+  .unduh .lbl{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;
+              color:var(--muted);margin-bottom:6px}
+  .unduh a{display:block;font-size:13px;padding:4px 0;color:var(--fg);text-decoration:none;
+           border-bottom:1px dashed var(--border)}
+  .unduh a:hover{color:var(--acc)}
+  .unduh button{margin:0 6px 6px 0}
   .kredit{text-align:center;font-size:12px;line-height:1.75;color:var(--muted);
           padding:4px 18px 30px}
   .kredit .nim{color:var(--fg);font-weight:400}
@@ -124,6 +132,41 @@
       <div class="m"><div class="k">V puncak</div><div class="v" id="m6">–</div></div>
     </div>
     <div class="hint" id="params"></div>
+  </div>
+
+  <div class="panel" id="panelUnduh">
+    <h2 style="margin:0 0 6px;font-size:15px">Gambar laporan</h2>
+    <p class="hint" style="margin:0 0 12px">
+      Delapan gambar dokumen <b>dirender ulang saat diminta</b> — bukan berkas jadi.
+      Klik = server menjalankan simulasi (RK4, parameter massa/gesek di bawah) lalu
+      menggambar dengan matplotlib. Butuh ±1–4 detik.
+    </p>
+    <div class="unduh">
+      <div>
+        <div class="lbl">Render ulang gambar dokumen</div>
+        <button class="gbr" data-g="4_6_step">Gambar 4.6.1 · tangga &amp; V_c</button>
+        <button class="gbr" data-g="4_7_step90">Gambar 4.7.1 · heading 90°</button>
+        <button class="gbr" data-g="4_7_step180">Gambar 4.7.2 · heading 180°</button>
+        <button class="gbr" data-g="5_7_all">Gambar 5.7.1 · SF vs PID</button>
+        <button class="gbr" data-g="6_A_speed">Gambar 6.1 · lima skenario kecepatan</button>
+        <button class="gbr" data-g="6_B_pos">Gambar 6.2 · empat skenario posisi</button>
+        <button class="gbr" data-g="6_C_robust">Gambar 6.3 · robustness</button>
+        <button class="gbr" data-g="6_D_motor">Gambar 6.4 · variasi motor</button>
+        <div class="hint" style="margin-top:6px">
+          Flowchart B.1/B.2 adalah diagram, bukan hasil simulasi — hanya ada di dokumen.
+        </div>
+      </div>
+      <div>
+        <div class="lbl">Hasil run terakhir</div>
+        <button id="dlpng" disabled>PNG grafik</button>
+        <button id="dlcsv" disabled>CSV titik</button>
+        <button id="dljson" disabled>JSON lengkap</button>
+        <div class="hint" style="margin-top:6px">
+          Memakai h = 0,1 ms (sama dengan tabel laporan), bukan h render.
+        </div>
+      </div>
+    </div>
+    <div class="hint" id="gbrStatus"></div>
   </div>
 
   <footer class="kredit">
@@ -336,6 +379,7 @@ async function jalankan() {
     const res = await fetch('/api/simulate?' + q.toString());
     if (!res.ok) throw new Error((await res.json()).error || res.statusText);
     DATA = await res.json();
+    ['dlpng', 'dlcsv', 'dljson'].forEach(id => el(id).disabled = false);
     i = 0; playing = false; el('play').textContent = 'Putar animasi';
     tampilMetrik(DATA);
     gambar();
@@ -357,6 +401,91 @@ async function jalankan() {
     el('run').disabled = false;
   }
 }
+
+function unduh(blob, nama) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = nama;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+function namaRun(ext) {
+  const m = el('mscale').value.replace('.', 'p');
+  const mu = el('muscale').value.replace('.', 'p');
+  return `agv_${el('skenario').value}_${el('kontroler').value}_m${m}_mu${mu}.${ext}`;
+}
+
+function unduhCSV() {
+  if (!DATA) return;
+  const kol = ['t', 'v_ref', 'v', 'psi_ref_deg', 'psi_deg', 'VL', 'VR', 'x', 'y'];
+  const baris = [kol.join(',')];
+  for (let j = 0; j < DATA.t.length; j++) {
+    baris.push(kol.map(c => (DATA[c] && DATA[c][j] !== undefined) ? DATA[c][j] : '').join(','));
+  }
+  unduh(new Blob([baris.join('\n')], { type: 'text/csv' }), namaRun('csv'));
+}
+
+function unduhJSON() {
+  if (!DATA) return;
+  unduh(new Blob([JSON.stringify(DATA, null, 1)], { type: 'application/json' }), namaRun('json'));
+}
+
+function unduhPNG() {
+  if (!DATA) return;
+  const w = 1000, tinggi = 300, atas = 92;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = atas + 3 * tinggi + 16;
+  const x = c.getContext('2d');
+  x.fillStyle = '#ffffff'; x.fillRect(0, 0, c.width, c.height);
+  x.fillStyle = '#111111'; x.font = 'bold 16px system-ui,sans-serif';
+  x.fillText(`AGV · ${DATA.skenario} · ${DATA.kontroler} · massa ×${el('mscale').value} · gesek ×${el('muscale').value}`, 24, 32);
+  x.fillStyle = '#555555'; x.font = '12px system-ui,sans-serif';
+  x.fillText('RK4 h = 0,1 ms · Ts = 10 ms · tunda 15 ms · dihitung saat run', 24, 52);
+  const m = DATA.metrik || {};
+  const ringkas = Object.keys(m).filter(k => typeof m[k] === 'number')
+    .map(k => `${k} = ${m[k].toFixed(3)}`).join('   ');
+  x.fillText(ringkas, 24, 70);
+  const ids = ['path', 'cv', 'ch'];
+  const judul = ['lintasan AGV (tampak atas)', 'kecepatan linear', 'heading'];
+  ids.forEach((id, n) => {
+    x.fillStyle = '#111111'; x.font = 'bold 12px system-ui,sans-serif';
+    x.fillText(judul[n], 24, atas + n * tinggi - 6);
+    x.drawImage(el(id), 20, atas + n * tinggi, w - 40, tinggi - 24);
+  });
+  c.toBlob(b => unduh(b, namaRun('png')), 'image/png');
+}
+
+document.querySelectorAll('button.gbr').forEach(b => {
+  b.onclick = async () => {
+    const id = b.dataset.g, teks = b.textContent;
+    b.disabled = true; b.textContent = 'membuat…';
+    el('gbrStatus').textContent = `merender ${id}: simulasi + matplotlib…`;
+    const t0 = performance.now();
+    try {
+      const q = new URLSearchParams({
+        gambar: id,
+        m_scale: el('mscale').value,
+        mu_scale: el('muscale').value,
+      });
+      const res = await fetch('/api/simulate?' + q.toString());
+      if (!res.ok) throw new Error((await res.json()).error || res.statusText);
+      const blob = await res.blob();
+      const nama = `${id}_m${el('mscale').value}_mu${el('muscale').value}.png`;
+      unduh(blob, nama);
+      el('gbrStatus').textContent =
+        `${nama} · ${Math.round(blob.size / 1024)} KB · ${Math.round(performance.now() - t0)} ms`;
+    } catch (e) {
+      el('gbrStatus').textContent = 'gagal: ' + e.message;
+    } finally {
+      b.disabled = false; b.textContent = teks;
+    }
+  };
+});
+
+el('dlpng').onclick = unduhPNG;
+el('dlcsv').onclick = unduhCSV;
+el('dljson').onclick = unduhJSON;
 
 el('run').onclick = jalankan;
 el('play').onclick = () => {

@@ -18,6 +18,11 @@ functions (`step`, `lsim`, `tf`, `ss`, `feedback`) are used anywhere.
   re-run without touching code.
 - **Per-run metrics** — rise time, 2 % settling time, overshoot, steady-state
   error, IAE/RMSE and peak voltage.
+- **Report figures on demand** — the eight document charts are re-rendered
+  server-side with matplotlib from the current mass/friction settings, so the
+  figure you download always belongs to the run you chose.
+- **Run exports** — PNG (canvas composite), CSV time series and full JSON, named
+  after the active scenario, controller and scaling.
 
 ## Architecture
 
@@ -54,7 +59,12 @@ Sampling `Ts = 10 ms` · delay `15 ms` · integrator `h = 0.1 ms` · drive limit
 python dev_server.py          # http://127.0.0.1:8099
 ```
 
-Only Python 3.9+ is required — no packages for the web app.
+The numeric endpoints (`/api/simulate` JSON) run on the standard library alone.
+Rendering report figures (`?gambar=`) additionally needs numpy and matplotlib:
+
+```bash
+pip install -r requirements.txt
+```
 
 Command-line simulation (stdlib only):
 
@@ -75,6 +85,11 @@ python simulasi/simulasi_agv.py --plot              # needs matplotlib
 | `kontroler` | `pid` (cascade + feedforward), `pid1` (single loop), `sf` (state feedback) | `pid` |
 | `m_scale` | mass/inertia multiplier, 0.7–1.6 | `1` |
 | `mu_scale` | friction multiplier, 0.5–2.5 | `1` |
+| `gambar` | `4_6_step`, `4_7_step90`, `4_7_step180`, `5_7_all`, `6_A_speed`, `6_B_pos`, `6_C_robust`, `6_D_motor` — returns a PNG instead of JSON | — |
+
+Figure requests integrate at `h = 0.25 ms` (the report's convergence test shows
+the same response to eight digits from 0.05 to 0.5 ms) to stay under the
+function timeout; the JSON/CSV endpoints keep `h = 0.1 ms`.
 
 Response:
 
@@ -104,6 +119,7 @@ Invalid parameters return HTTP 400 with `{"error": "..."}`.
 
 ```
 index.html            web UI (canvas, no external libraries)
+requirements.txt      numpy + matplotlib, needed only by ?gambar= rendering
 api/simulate.py       Python serverless engine: plant, controllers, metrics
 dev_server.py         local server (static files + /api/simulate)
 simulasi/             desktop/CLI sources and report generators

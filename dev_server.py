@@ -17,10 +17,9 @@ from urllib.parse import parse_qs, urlparse
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(ROOT, "api"))
 
-from simulate import run_sim  # noqa: E402
+from simulate import api_respon  # noqa: E402
 
 PORT = int(os.environ.get("PORT", "8099"))
-ALLOWED = ("skenario", "kontroler", "m_scale", "mu_scale")
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -29,21 +28,18 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         if self.path.startswith("/api/simulate"):
-            q = parse_qs(urlparse(self.path).query)
-            kw = {k: q[k][0] for k in ALLOWED if k in q}
+            kueri = urlparse(self.path).query
             try:
-                body = json.dumps(run_sim(**kw)).encode()
-                self.send_response(200)
-                code = 200
+                body, ctype, code = api_respon(kueri)
             except Exception as exc:  # noqa: BLE001
                 body = json.dumps({"error": str(exc)}).encode()
-                self.send_response(400)
-                code = 400
-            self.send_header("Content-Type", "application/json; charset=utf-8")
+                ctype, code = "application/json; charset=utf-8", 400
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
-            print(f"  /api/simulate {kw} -> {code} ({len(body)/1024:.0f} KB)")
+            print(f"  /api/simulate {kueri[:60]} -> {code} ({len(body)/1024:.0f} KB)")
             return
         super().do_GET()
 

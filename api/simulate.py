@@ -38,9 +38,13 @@ KV_FB, KXI_V, N_FF, VC0 = 27.59, 136.5, 6.530, 0.675
 KPSI, KW, KXIPSI = 15.86, 2.154, 31.72
 
 
-def koef(m_scale=1.0, mu_scale=1.0):
-    """Hitung koefisien turunan; m_scale & mu_scale untuk uji robustness."""
+def koef(m_scale=1.0, mu_scale=1.0, motor=None, v_supply=None):
+    """Hitung koefisien turunan; m_scale/mu_scale/motor/v_supply untuk uji robustness."""
     p = dict(BASE)
+    if motor:
+        p.update(motor)
+    if v_supply:
+        p["V_SUPPLY"] = float(v_supply)
     p["M"] *= m_scale
     p["JW"] *= m_scale
     p["JT"] *= m_scale
@@ -207,7 +211,12 @@ def ref_sin(t):
     return {"psi": 0.7 * math.sin(2 * math.pi * 0.2 * (t - 0.5)), "v": 0.20}
 
 
+def ref_step_low(t):
+    return {"v": 0.0347 if t >= 0.5 else 0.0}
+
+
 SKENARIO = {
+    "rpm500":  ("Kecepatan: 500 rpm motor (0,0347 m/s)", ref_step_low, 5.0, False),
     "step":    ("Kecepatan: tangga 0 → 0,35 m/s", ref_step, 4.0, False),
     "multi":   ("Kecepatan: referensi bertingkat", ref_multi, 7.0, False),
     "ramp":    ("Kecepatan: ramp 0,4375 m/s²", ref_ramp, 6.0, False),
@@ -225,12 +234,12 @@ def dist_beban(t):
 # ======================================================================
 # Simulasi + metrik
 # ======================================================================
-def jalan(kontroler, t_end, ref, pakai_dist, p):
+def jalan(kontroler, t_end, ref, pakai_dist, p, h=None):
     k = SF() if kontroler == "sf" else PID(satu_loop=(kontroler == "pid1"))
     k.reset()
     st = [0.0] * 7
     n = int(round(t_end / TS))
-    sub = max(1, int(round(TS / H)))
+    sub = max(1, int(round(TS / (h or H))))
     hh = TS / sub
     antre = []
     VLa = VRa = 0.0
@@ -393,6 +402,27 @@ $('go').click();
 </script></body></html>"""
 
 
+def api_respon(kueri: str):
+    """Kembalikan (body, content_type, kode) untuk satu permintaan /api/simulate.
+
+    Dipakai bersama oleh handler Vercel dan dev_server.py agar rutenya tidak pernah
+    berbeda antara lokal dan produksi.
+    """
+    q = parse_qs(kueri)
+    nama = q.get("gambar", [None])[0]
+    if nama:
+        png = gambar(nama, q.get("m_scale", ["1"])[0], q.get("mu_scale", ["1"])[0])
+        return png, "image/png", 200
+    data = run_sim(
+        skenario=q.get("skenario", ["step"])[0],
+        kontroler=q.get("kontroler", ["pid"])[0],
+        m_scale=q.get("m_scale", ["1"])[0],
+        mu_scale=q.get("mu_scale", ["1"])[0],
+    )
+    return (json.dumps(data, separators=(",", ":")).encode(),
+            "application/json; charset=utf-8", 200)
+
+
 def halaman_utama() -> bytes:
     """Cari index.html di beberapa lokasi; kalau tidak ada, pakai halaman ringkas."""
     akar = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -404,6 +434,243 @@ def halaman_utama() -> bytes:
         except OSError:
             continue
     return LITE_HTML.encode()
+
+
+# ======================================================================
+# Gambar gaya laporan (matplotlib, dirender saat diminta)
+# ======================================================================
+MOTOR_N20 = dict(IG=30.0, KT=4.0e-3, KE=4.0e-3, RA=6.0, LA=1.0e-3,
+                 JM=1.2e-6, BM=1.0e-7, TAU_C=5.0e-4)
+MOTOR_HOT = dict(RA=1.2 * BASE["RA"], KT=0.9 * BASE["KT"], KE=0.9 * BASE["KE"])
+
+KONDISI = [
+    ("nominal", dict()),
+    ("massa +30%", dict(ms=1.3)),
+    ("gesek ×2", dict(mus=2.0)),
+    ("Ra +20%\nKt −10%", dict(motor=MOTOR_HOT)),
+    ("suplai 5,0 V", dict(v_supply=5.0)),
+]
+
+
+def _plt():
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    plt.rcParams.update({
+        "figure.dpi": 140, "font.size": 8.5, "axes.titlesize": 9,
+        "axes.grid": True, "grid.alpha": 0.3, "grid.linewidth": 0.6,
+        "axes.spines.top": False, "axes.spines.right": False,
+        "legend.frameon": False, "legend.fontsize": 7.5, "lines.linewidth": 1.3,
+    })
+    return plt
+
+
+def _png(fig):
+    import io
+    import matplotlib.pyplot as plt
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight")
+    plt.close(fig)
+    return buf.getvalue()
+
+
+def _jalan(sken, ctrl, ms=1.0, mus=1.0, motor=None, v_supply=None):
+    _, ref, t_end, pakai = SKENARIO[sken]
+    p = koef(ms, mus, motor=motor, v_supply=v_supply)
+    return jalan(ctrl, t_end, ref, pakai, p, h=2.5e-4), p
+
+
+def _deg(a):
+    return [math.degrees(v) for v in a]
+
+
+def _laju(rec):
+    t, psi = rec["t"], rec["psi"]
+    w = [0.0] * len(t)
+    for i in range(1, len(t) - 1):
+        w[i] = (psi[i + 1] - psi[i - 1]) / (t[i + 1] - t[i - 1])
+    return w
+
+
+def g_4_6_step(ms=1.0, mus=1.0):
+    plt = _plt()
+    rec, p = _jalan("step", "pid", ms, mus)
+    fig, ax = plt.subplots(2, 1, figsize=(6.2, 4.4), sharex=True)
+    ax[0].plot(rec["t"], rec["v_ref"], "k--", lw=1.0, label="referensi")
+    ax[0].plot(rec["t"], rec["v"], label="PID cascade + feedforward")
+    ax[0].set_ylabel(r"$v$ [m/s]")
+    ax[0].set_title("Respons kecepatan terhadap tangga 0 → 0,35 m/s")
+    ax[0].legend(loc="lower right")
+    vc = [0.5 * (a + b) for a, b in zip(rec["VL"], rec["VR"])]
+    ax[1].plot(rec["t"], vc, color="#d62728", label=r"$V_c$")
+    for sgn in (1, -1):
+        ax[1].axhline(sgn * p["V_SUPPLY"], ls="--", lw=0.9, color="0.45")
+    ax[1].set_ylabel(r"$V_c$ [V]")
+    ax[1].set_xlabel("waktu [s]")
+    ax[1].set_title("Tegangan kendali common-mode (garis putus-putus = batas 6 V)")
+    fig.tight_layout()
+    return _png(fig)
+
+
+def _gambar_tangga_heading(derajat, ms=1.0, mus=1.0):
+    plt = _plt()
+    r_pid, _ = _jalan("psi%d" % derajat, "pid", ms, mus)
+    r_pid1, _ = _jalan("psi%d" % derajat, "pid1", ms, mus)
+    fig, ax = plt.subplots(2, 1, figsize=(6.2, 4.6), sharex=True)
+    ax[0].plot(r_pid["t"], _deg(r_pid["psi_ref"]), "k--", lw=1.0, label="referensi")
+    ax[0].plot(r_pid["t"], _deg(r_pid["psi"]), label="cascade P–PI")
+    ax[0].plot(r_pid1["t"], _deg(r_pid1["psi"]), label="PID satu loop")
+    ax[0].set_ylabel(r"$\psi$ [derajat]")
+    ax[0].set_title("Tangga heading 0 → %d° (rotasi di tempat)" % derajat)
+    ax[0].legend(loc="lower right")
+    ax[1].plot(r_pid["t"], _laju(r_pid), label="cascade")
+    ax[1].plot(r_pid1["t"], _laju(r_pid1), label="PID satu loop")
+    ax[1].axhline(3.0, ls="--", lw=0.9, color="0.45")
+    ax[1].axhline(-3.0, ls="--", lw=0.9, color="0.45")
+    ax[1].set_ylabel(r"$\dot{\psi}$ [rad/s]")
+    ax[1].set_xlabel("waktu [s]")
+    ax[1].set_title("Laju yaw (batas rancangan 3 rad/s)")
+    fig.tight_layout()
+    return _png(fig)
+
+
+def g_4_7_step90(ms=1.0, mus=1.0):
+    return _gambar_tangga_heading(90, ms, mus)
+
+
+def g_4_7_step180(ms=1.0, mus=1.0):
+    return _gambar_tangga_heading(180, ms, mus)
+
+
+def g_5_7_all(ms=1.0, mus=1.0):
+    plt = _plt()
+    fig, ax = plt.subplots(2, 2, figsize=(8.4, 5.6))
+    pasangan = [("step", "Kecepatan: tangga 0,35 m/s", r"$v$ [m/s]"),
+                ("gangguan", "Kecepatan: gangguan 1,5 N", r"$v$ [m/s]"),
+                ("psi90", "Heading: tangga 90°", r"$\psi$ [derajat]"),
+                ("sinus", "Heading: sinusoid 0,2 Hz", r"$\psi$ [derajat]")]
+    for a, (sken, judul, ylab) in zip(ax.flat, pasangan):
+        r_pid, _ = _jalan(sken, "pid", ms, mus)
+        r_sf, _ = _jalan(sken, "sf", ms, mus)
+        deg = sken in ("psi90", "sinus")
+        f = _deg if deg else (lambda x: x)
+        a.plot(r_pid["t"], f(r_pid["psi_ref"] if deg else r_pid["v_ref"]), "k--", lw=0.9)
+        a.plot(r_pid["t"], f(r_pid["psi"] if deg else r_pid["v"]), label="PID")
+        a.plot(r_sf["t"], f(r_sf["psi"] if deg else r_sf["v"]), label="SF + integral")
+        a.set_title(judul)
+        a.set_ylabel(ylab)
+        a.set_xlabel("waktu [s]")
+    ax.flat[0].legend(loc="lower right")
+    fig.suptitle("Pengontrol alternatif (SF + integral) dibandingkan PID", y=1.005)
+    fig.tight_layout()
+    return _png(fig)
+
+
+def g_6_A_speed(ms=1.0, mus=1.0):
+    plt = _plt()
+    fig, ax = plt.subplots(2, 3, figsize=(9.4, 5.2))
+    pasangan = [("step", "(a) tangga 0,35 m/s"), ("multi", "(b) bertingkat"),
+                ("ramp", "(c) ramp 0,4375 m/s²"), ("gangguan", "(d) gangguan 1,5 N"),
+                ("rpm500", "(e) 500 rpm (0,0347 m/s)")]
+    for k, (sken, judul) in enumerate(pasangan):
+        a = ax.flat[k]
+        r_pid, _ = _jalan(sken, "pid", ms, mus)
+        r_sf, _ = _jalan(sken, "sf", ms, mus)
+        a.plot(r_pid["t"], r_pid["v_ref"], "k--", lw=0.9, label="referensi")
+        a.plot(r_pid["t"], r_pid["v"], label="PID")
+        a.plot(r_sf["t"], r_sf["v"], label="SF")
+        a.set_title(judul)
+        a.set_xlabel("waktu [s]")
+        if k % 3 == 0:
+            a.set_ylabel(r"$v$ [m/s]")
+    ax.flat[-1].axis("off")
+    h, l = ax.flat[0].get_legend_handles_labels()
+    fig.legend(h, l, loc="lower center", ncol=3, frameon=False)
+    fig.suptitle("Perbandingan PID dan SF pada lima skenario kecepatan", y=1.01)
+    fig.tight_layout(rect=(0, 0.05, 1, 1))
+    return _png(fig)
+
+
+def g_6_B_pos(ms=1.0, mus=1.0):
+    plt = _plt()
+    fig, ax = plt.subplots(2, 2, figsize=(8.4, 5.6))
+    pasangan = [("psi90", "(a) tangga 0 → 90°"), ("psi180", "(b) tangga 0 → 180°"),
+                ("multi", "(c) bertingkat"), ("sinus", "(d) sinusoid 0,2 Hz")]
+    for a, (sken, judul) in zip(ax.flat, pasangan):
+        r_pid, _ = _jalan(sken, "pid", ms, mus)
+        r_sf, _ = _jalan(sken, "sf", ms, mus)
+        a.plot(r_pid["t"], _deg(r_pid["psi_ref"]), "k--", lw=0.9, label="referensi")
+        a.plot(r_pid["t"], _deg(r_pid["psi"]), label="PID")
+        a.plot(r_sf["t"], _deg(r_sf["psi"]), label="SF + integral")
+        a.set_title(judul)
+        a.set_ylabel(r"$\psi$ [derajat]")
+        a.set_xlabel("waktu [s]")
+    ax.flat[0].legend(loc="lower right")
+    fig.suptitle("Perbandingan PID dan SF pada empat skenario posisi", y=1.005)
+    fig.tight_layout()
+    return _png(fig)
+
+
+def g_6_C_robust(ms=1.0, mus=1.0):
+    plt = _plt()
+    data = {"PID": [], "SF": []}
+    for _, kw in KONDISI:
+        for lab, ctrl in (("PID", "pid"), ("SF", "sf")):
+            rec, _p = _jalan("step", ctrl, kw.get("ms", 1.0), kw.get("mus", 1.0),
+                             motor=kw.get("motor"), v_supply=kw.get("v_supply"))
+            m = metrik_tangga(rec["t"], rec["v"], rec["v_ref"], 0.5)
+            data[lab].append(m["ts"] if m["ts"] is not None else 0.0)
+    fig, ax = plt.subplots(figsize=(7.0, 3.8))
+    x = range(len(KONDISI))
+    w = 0.36
+    ax.bar([i - w / 2 for i in x], data["PID"], w, label="PID", color="#1f77b4")
+    ax.bar([i + w / 2 for i in x], data["SF"], w, label="SF + integral", color="#ff7f0e")
+    ax.set_xticks(list(x))
+    ax.set_xticklabels([n for n, _ in KONDISI], fontsize=7.5)
+    ax.set_ylabel(r"$t_s$ kecepatan (2%) [s]")
+    ax.set_title("Waktu penetapan kecepatan pada lima kondisi operasi")
+    ax.legend(loc="upper left")
+    fig.tight_layout()
+    return _png(fig)
+
+
+def g_6_D_motor(ms=1.0, mus=1.0):
+    plt = _plt()
+    fig, ax = plt.subplots(figsize=(6.6, 3.8))
+    for lab, motor, warna in (("TT 48:1", None, "#1f77b4"),
+                              ("TT 48:1 (SF)", None, "#1f77b4"),
+                              ("Alternatif 1:30", MOTOR_N20, "#d62728"),
+                              ("Alternatif 1:30 (SF)", MOTOR_N20, "#d62728")):
+        ctrl = "sf" if "(SF)" in lab else "pid"
+        rec, _p = _jalan("step", ctrl, ms, mus, motor=motor)
+        ax.plot(rec["t"], rec["v"], ls="--" if "(SF)" in lab else "-",
+                color=warna, label=lab)
+    rec, _p = _jalan("step", "pid", ms, mus)
+    ax.plot(rec["t"], rec["v_ref"], "k:", lw=0.9, label="referensi")
+    ax.set_xlabel("waktu [s]")
+    ax.set_ylabel(r"$v$ [m/s]")
+    ax.set_title("Pengaruh karakteristik motor (penguatan tidak diubah)")
+    ax.legend(loc="lower right", ncol=2)
+    fig.tight_layout()
+    return _png(fig)
+
+
+GAMBAR = {
+    "4_6_step": g_4_6_step,
+    "4_7_step90": g_4_7_step90,
+    "4_7_step180": g_4_7_step180,
+    "5_7_all": g_5_7_all,
+    "6_A_speed": g_6_A_speed,
+    "6_B_pos": g_6_B_pos,
+    "6_C_robust": g_6_C_robust,
+    "6_D_motor": g_6_D_motor,
+}
+
+
+def gambar(nama, ms=1.0, mus=1.0):
+    if nama not in GAMBAR:
+        raise ValueError("gambar tidak dikenal: %s" % nama)
+    return GAMBAR[nama](float(ms), float(mus))
 
 
 # ======================================================================
@@ -428,16 +695,9 @@ class handler(BaseHTTPRequestHandler):
                                     "path": jalur}).encode(), "application/json", 404)
             return
         try:
-            q = parse_qs(urlparse(self.path).query)
-            data = run_sim(
-                skenario=q.get("skenario", ["step"])[0],
-                kontroler=q.get("kontroler", ["pid"])[0],
-                m_scale=q.get("m_scale", ["1"])[0],
-                mu_scale=q.get("mu_scale", ["1"])[0],
-            )
-            body = json.dumps(data, separators=(",", ":")).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
+            body, ctype, kode = api_respon(urlparse(self.path).query)
+            self.send_response(kode)
+            self.send_header("Content-Type", ctype)
             self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Cache-Control", "public, max-age=60")
             self.send_header("Content-Length", str(len(body)))
