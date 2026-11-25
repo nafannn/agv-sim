@@ -21,6 +21,25 @@ Python 3.8+ saja. Keluarannya tabel metrik semua skenario:
 Opsi: `--skenario psi90` · `--kontroler sf` · `--bandingkan` · `--csv folder` ·
 `--plot` (butuh matplotlib). Di Windows bisa klik dua kali `JALANKAN.bat`.
 
+## Pilih bagian yang dijalankan
+
+Tidak harus semuanya. Ada tiga cara:
+
+```bash
+python run_sims.py --daftar            # lihat kode bagian yang tersedia
+python run_sims.py --bagian 4.6,6A     # hanya dua bagian itu
+python run_sims.py --pilih             # menu interaktif, pilih nomor
+```
+
+Kode bagian: `4.6` kontrol kecepatan, `4.7` kontrol posisi, `5.7` state feedback,
+`6A` perbandingan kecepatan, `6B` perbandingan posisi, `6C` robustness,
+`6D` variasi motor. Tanpa argumen = semua.
+
+Beberapa bagian memakai hasil bagian lain, jadi ikut dijalankan otomatis dan
+diberitahukan di layar (mis. `6A` butuh `4.6`, `4.7`, dan `5.7`). Bila yang
+dijalankan hanya sebagian, angkanya disimpan ke `results/results_bagian_<kode>.json`
+agar `results/results.json` tidak tertimpa.
+
 ## Semua skenario + grafik
 
 ```bash

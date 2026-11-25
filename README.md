@@ -113,6 +113,18 @@ python run_sims.py              # ~60 s, writes figs/ and results/results.json
 Downloading the repository as a ZIP and running `cd simulasi && python
 simulasi_agv.py` reproduces the report numbers on any machine with Python.
 
+To run only part of the matrix:
+
+```bash
+python run_sims.py --daftar            # list the section codes
+python run_sims.py --bagian 4.6,6A     # run a subset
+python run_sims.py --pilih             # interactive menu
+```
+
+Sections that depend on another one pull it in automatically (for example `6A`
+needs `4.6`, `4.7` and `5.7`), and a partial run writes
+`results/results_bagian_<codes>.json` instead of overwriting `results.json`.
+
 ## What is in the repository
 
 ```
