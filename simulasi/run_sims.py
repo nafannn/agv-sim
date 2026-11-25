@@ -223,7 +223,39 @@ def eval_pos(tr, name):
 # ======================================================================
 # 4.6  Kontrol kecepatan (PID + feedforward)
 # ======================================================================
-print("[4.6] kontrol kecepatan ...")
+import time as _time
+
+_T0 = _time.time()
+_TAHAP = {"nama": "", "t": _T0}
+
+
+def tahap(nama):
+    """Mulai satu tahap; tahap sebelumnya ditutup dengan durasinya."""
+    _tutup()
+    _TAHAP["nama"], _TAHAP["t"] = nama, _time.time()
+    print(f"  {nama:38s} ... ", end="", flush=True)
+
+
+def _tutup():
+    if _TAHAP["nama"]:
+        print(f"selesai ({_time.time() - _TAHAP['t']:.1f} s)")
+        _TAHAP["nama"] = ""
+
+
+def ok(catatan=""):
+    if _TAHAP["nama"]:
+        print(f"selesai ({_time.time() - _TAHAP['t']:.1f} s){(' — ' + catatan) if catatan else ''}")
+        _TAHAP["nama"] = ""
+
+
+print("=" * 78)
+print("Simulasi AGV line follower 4WD - TF4107 Tugas Proyek 2")
+print("Menjalankan seluruh skenario. Perkiraan 60-80 detik, tergantung mesin.")
+print(f"Keluaran: {os.path.abspath(FIG)}/ (grafik) dan {os.path.abspath(RES)}/results.json")
+print("=" * 78)
+print()
+
+tahap("4.6 kontrol kecepatan")
 tr_ff = run(C_PID, ref_speed_step, 4.0)
 tr_noff = run(C_PID, ref_speed_step, 4.0, ff=False)
 tr_lam20 = simulate(P, ControllerPID(speed=SpeedPI(Kp=10.66, Ki=32.65)), 4.0,
@@ -330,7 +362,7 @@ out["s46"]["low_speed"] = rec_step(tr_low, "v", "v_ref", 0.5)
 # ======================================================================
 # 4.7  Kontrol posisi (heading): cascade vs PID satu loop
 # ======================================================================
-print("[4.7] kontrol posisi heading ...")
+tahap("4.7 kontrol posisi heading")
 tr90_c = run(C_PID, ref_psi_step(90), 5.0)
 tr90_p = run(C_PID1, ref_psi_step(90), 5.0)
 tr180_c = run(C_PID, ref_psi_step(180), 6.0)
@@ -416,7 +448,7 @@ plt.close(fig)
 # ======================================================================
 # 5.7  Pengontrol alternatif: state feedback + integral
 # ======================================================================
-print("[5.7] state feedback ...")
+tahap("5.7 state feedback")
 trsf_step = run(C_SF, ref_speed_step, 4.0)
 trsf_dist = run(C_SF, ref_speed_step, 6.0, dist=dist_load)
 trsf90 = run(C_SF, ref_psi_step(90), 5.0)
@@ -469,7 +501,7 @@ plt.close(fig)
 # ======================================================================
 # 6A  Pengujian kontrol kecepatan: PID vs SF
 # ======================================================================
-print("[6A] perbandingan kecepatan ...")
+tahap("6A perbandingan kecepatan")
 scen_speed = [
     ("step", ref_speed_step, 4.0, None),
     ("multi", ref_speed_multi, 7.0, None),
@@ -519,7 +551,7 @@ plt.close(fig)
 # ======================================================================
 # 6B  Pengujian kontrol posisi: PID vs SF
 # ======================================================================
-print("[6B] perbandingan posisi ...")
+tahap("6B perbandingan posisi")
 scen_pos = [
     ("step90", lambda t: {"psi": np.deg2rad(90) if t >= 1.0 else 0.0, "v": 0.25}, 5.0),
     ("step180", lambda t: {"psi": np.deg2rad(180) if t >= 1.0 else 0.0, "v": 0.25}, 6.0),
@@ -565,7 +597,7 @@ plt.close(fig)
 # ======================================================================
 # 6C  Robustness
 # ======================================================================
-print("[6C] robustness ...")
+tahap("6C robustness")
 perturb = [
     ("nominal", P),
     ("massa+inersia +30%", P.scaled(m=1.3 * P.m, Jw=1.3 * P.Jw, Jt=1.3 * P.Jt, Jm=1.3 * P.Jm)),
@@ -634,7 +666,7 @@ plt.close(fig)
 # ======================================================================
 # 6D  Variasi motor
 # ======================================================================
-print("[6D] variasi motor ...")
+tahap("6D variasi motor")
 trB = simulate(PLANT_N20, make_ctrl(C_PID), 6.0, ref_speed_step)
 trB_sf = simulate(PLANT_N20, make_ctrl(C_SF), 6.0, ref_speed_step)
 out["s6"]["D"] = {
@@ -669,4 +701,30 @@ plt.close(fig)
 with open(os.path.join(RES, "results.json"), "w", encoding="utf-8") as f:
     json.dump(out, f, indent=1, ensure_ascii=False)
 
-print("\nselesai. grafik:", len(os.listdir(FIG)), "berkas")
+ok()
+
+ns = len([b for b in os.listdir(FIG) if b.endswith(".png")])
+print()
+print("=" * 78)
+print(f"SELESAI dalam {_time.time() - _T0:.1f} s")
+print(f"  grafik PNG     : {ns} berkas di {os.path.abspath(FIG)}")
+print(f"  angka simulasi : {os.path.abspath(os.path.join(RES, 'results.json'))}")
+print()
+print("Angka kunci (sama dengan tabel laporan):")
+try:
+    a = out["s6"]["A"]
+    b = out["s6"]["B"]
+    print(f"  kecepatan tangga  PID t_s {a['step']['PID']['settling_time']:.3f} s"
+          f" | SF t_s {a['step']['SF']['settling_time']:.3f} s"
+          f" | 500 rpm PID t_s {a['rpm500']['PID']['settling_time']:.3f} s")
+    print(f"  heading 90        PID t_s {out['s47']['cascade_90']['settling_time']:.3f} s"
+          f" | SF t_s {out['s57']['heading90']['settling_time']:.3f} s"
+          f" | PID 1 loop {out['s47']['pid1_90']['settling_time']:.3f} s"
+          "  (rotasi dari diam, seperti tabel 4.7.1)")
+    print(f"  ramp RMSE {out['s46']['ramp']['rmse'] * 1000:.1f} mm/s"
+          f" | sinus RMSE {b['sin']['PID']['rmse']:.2f} derajat")
+except Exception:  # noqa: BLE001
+    pass
+print()
+print("Buka folder figs/ untuk melihat grafiknya, atau results/results.json untuk angkanya.")
+print("=" * 78)

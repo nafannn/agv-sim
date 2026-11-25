@@ -28,7 +28,7 @@ pip install -r requirements.txt
 python run_sims.py
 ```
 
-±60 detik, menghasilkan `figs/` (24 grafik) dan `results/results.json`. Skrip
+±60 detik, menghasilkan `figs/` (13 grafik) dan `results/results.json`. Skrip
 membuat kedua folder itu sendiri.
 
 | Skenario | Kontroler | t_s (2%) | Lonjakan |

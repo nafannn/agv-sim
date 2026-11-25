@@ -1,43 +1,36 @@
 # AGV Line-Follower Simulation
 
-Interactive simulation of a four-wheel differential-drive AGV: nonlinear plant,
-discrete-time control, and a web front-end. Built for **TF4107 Mechatronics
-Project 2** and used to produce the simulation chapters of the report.
+Simulation of a four-wheel differential-drive AGV: nonlinear plant, discrete-time
+control, and a web page to try it in a browser. Built for **TF4107 Robotics and
+Automation — Project 2**; the numbers it produces are the ones used in the report.
 
-The plant is derived from the CAD design (mass, inertia, DC-gearmotor, friction)
-and integrated with a hand-written Runge-Kutta 4 solver. No control-toolbox
-functions (`step`, `lsim`, `tf`, `ss`, `feedback`) are used anywhere.
+The plant comes from the CAD design (mass, inertia, DC gearmotor, friction) and is
+integrated with a hand-written Runge-Kutta 4 solver. No control-toolbox functions
+(`step`, `lsim`, `tf`, `ss`, `feedback`) are used anywhere.
 
-## What you can do
+## What you can try
 
 - **Eight scenarios** — speed step, multi-step, ramp, load disturbance, 500 rpm
   (0.0347 m/s), heading step 90°/180°, and sinusoidal heading tracking.
-- **Three controllers** — cascaded PI with feedforward (design baseline),
-  single-loop PID, and state feedback with integral action.
-- **Compare** — pick a second controller in *Bandingkan dengan*; the run is
-  repeated and both curves are drawn in the same panels.
-- **Robustness sliders** — scale mass/inertia (0.7–1.6×) and friction (0.5–2.5×)
-  and re-run without touching code.
-- **Exports** — `Simpan PNG` (report-style sheet: header with both metric sets,
-  then the same two panels as the document), `CSV` (time series) and `JSON`
-  (full response). Filenames carry scenario, controller and scaling.
-- **Report figures on demand** — the eight document charts are re-rendered
-  server-side with matplotlib from the current sliders; the figure is **shown in
-  the page first**, and only then offered as a download.
+- **Three controllers** — cascaded PI with feedforward, single-loop PID, and state
+  feedback with integral action.
+- **Comparison** — choose a second controller in *Bandingkan dengan* and both
+  curves are drawn in the same panels.
+- **Parameter sliders** — mass/inertia 0.7–1.6× and friction 0.5–2.5×, no code
+  editing needed.
+- **Exports** — the run on screen as PNG, CSV or JSON; filenames carry scenario,
+  controller and scaling.
+- **Report figures** — the eight charts of the document, re-drawn with the current
+  sliders, shown on the page and downloadable from there.
 
-## Architecture
+## Using the page
 
-```
-browser ──GET /api/simulate?skenario=step&kontroler=pid──► Vercel Python function
-        ◄──────────── JSON: time series + metrics ────────  api/simulate.py
-        ◄──────────── PNG: report-style figure ───────────  (?gambar=name)
-canvas draws the top view, v(t) or ψ(t), V_c or ψ̇(t) and the metric cards
-```
-
-The engine holds the plant coefficients, integrates with RK4 (`h = 0.1 ms`),
-runs the controller at `Ts = 10 ms` with a `1.5·Ts` transport delay, and returns
-~300–400 points (~20 KB). The JSON path uses the standard library only; the
-figure path imports numpy and matplotlib on demand.
+1. Pick **Skenario** and **Kontroler**; optionally set *Bandingkan dengan*.
+2. **Jalankan simulasi** — charts, metric cards and the readout update. Hovering a
+   chart freezes the animation and locks both charts to the same instant.
+3. **Simpan PNG / CSV / JSON** export the run on screen.
+4. **Hasil simulasi pada laporan** draws one of the document figures, displays it
+   inline, then offers *Simpan gambar*.
 
 ## Model
 
@@ -53,47 +46,8 @@ figure path imports numpy and matplotlib on demand.
 | speed channel | `a_v = 3.06 s⁻¹`, `b_v = 0.469` | linearised |
 | yaw channel | `a_ω = 3.38 s⁻¹`, `b_ω = 6.81` | linearised |
 
-Sampling `Ts = 10 ms` · delay `15 ms` · integrator `h = 0.1 ms` · drive limit
-`|V| ≤ 6 V` · gearbox `48:1`, `η = 0.85`.
-
-## Using the page
-
-1. Pick **Skenario** and **Kontroler**; optionally set *Bandingkan dengan*.
-2. **Jalankan simulasi** — charts, metric cards and readout update. Hovering a
-   chart freezes the animation and locks both charts to the same instant.
-3. **Simpan PNG / CSV / JSON** export the run that is on screen.
-4. **Hasil simulasi pada laporan** renders one of the document figures with the
-   current sliders, shows it inline, then offers *Simpan gambar*.
-
-## API
-
-`GET /api/simulate`
-
-| Parameter | Values | Default |
-|---|---|---|
-| `skenario` | `step`, `multi`, `ramp`, `gangguan`, `rpm500`, `psi90`, `psi180`, `sinus` | `step` |
-| `kontroler` | `pid` (cascade + feedforward), `pid1` (single loop), `sf` (state feedback) | `pid` |
-| `m_scale` | mass/inertia multiplier, 0.7–1.6 | `1` |
-| `mu_scale` | friction multiplier, 0.5–2.5 | `1` |
-| `gambar` | `4_6_step`, `4_7_step90`, `4_7_step180`, `5_7_all`, `6_A_speed`, `6_B_pos`, `6_C_robust`, `6_D_motor` — returns a PNG instead of JSON | — |
-
-Figure requests integrate at `h = 0.25 ms` (the convergence test in the report
-shows the same response to eight digits from 0.05 to 0.5 ms) to stay inside the
-function timeout; the JSON path keeps `h = 0.1 ms`.
-
-Response:
-
-```json
-{
-  "skenario": "step", "nama": "...", "kontroler": "pid", "satuan": "m/s",
-  "metrik": {"tr": 0.27, "ts": 0.65, "MP": 0.0, "ess": 8.5e-7, "IAE": 0.052},
-  "t": [...], "v": [...], "v_ref": [...], "psi_deg": [...], "psi_ref_deg": [...],
-  "VL": [...], "VR": [...], "x": [...], "y": [...],
-  "params": {"m_eq": 11.669, "J_psi": 0.0603, "c_F": 10.944, "a_v": 3.062, "b_v": 0.4689}
-}
-```
-
-Invalid parameters return HTTP 400 with `{"error": "..."}`.
+Sampling `Ts = 10 ms` · command delay `15 ms` · integrator `h = 0.1 ms` · drive
+limit `|V| ≤ 6 V` · gearbox `48:1`, `η = 0.85`.
 
 ## Results (nominal tuning)
 
@@ -107,69 +61,81 @@ Invalid parameters return HTTP 400 with `{"error": "..."}`.
 | heading 0 → 90° | single-loop PID | 3.160 s | 3.60 % | 0.545° |
 | sinusoidal heading, 0.2 Hz | PID cascade | — | — | RMSE 8.68° |
 
-## Getting started
+## API
 
-```bash
-python dev_server.py          # http://127.0.0.1:8099
+`GET /api/simulate`
+
+| Parameter | Values | Default |
+|---|---|---|
+| `skenario` | `step`, `multi`, `ramp`, `gangguan`, `rpm500`, `psi90`, `psi180`, `sinus` | `step` |
+| `kontroler` | `pid`, `pid1`, `sf` | `pid` |
+| `m_scale` | mass/inertia multiplier, 0.7–1.6 | `1` |
+| `mu_scale` | friction multiplier, 0.5–2.5 | `1` |
+| `gambar` | `4_6_step`, `4_7_step90`, `4_7_step180`, `5_7_all`, `6_A_speed`, `6_B_pos`, `6_C_robust`, `6_D_motor` — returns a PNG instead of JSON | — |
+
+Response (`skenario=step&kontroler=pid`):
+
+```json
+{
+  "skenario": "step", "nama": "...", "kontroler": "pid", "satuan": "m/s",
+  "metrik": {"tr": 0.27, "ts": 0.65, "MP": 0.0, "ess": 8.5e-7, "IAE": 0.052},
+  "t": [...], "v": [...], "v_ref": [...], "psi_deg": [...], "psi_ref_deg": [...],
+  "VL": [...], "VR": [...], "x": [...], "y": [...],
+  "params": {"m_eq": 11.669, "J_psi": 0.0603, "c_F": 10.944, "a_v": 3.062, "b_v": 0.4689}
+}
 ```
 
-The JSON endpoints need nothing but Python. Figure rendering and the CLI matrix
-need numpy and matplotlib:
+Unknown parameter values return HTTP 400 with `{"error": "..."}`.
+
+## Running it locally
+
+```bash
+python dev_server.py            # http://127.0.0.1:8099
+```
+
+Nothing beyond Python is needed for the JSON endpoints. The figure buttons and the
+command-line matrix also need numpy and matplotlib:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Simulation code only (no web stack)
+## Simulation code (no web)
 
-`simulasi/` holds the code behind the report tables; it is excluded from the
-deployment via `.vercelignore`.
+`simulasi/` holds the code that produces every number in the report tables.
 
 ```bash
 cd simulasi
-python simulasi_agv.py        # Python 3.8+, no packages, prints the metric tables
-python run_sims.py            # ~60 s, writes figs/ and results/results.json
+python simulasi_agv.py          # Python 3.8+, no packages, prints the metric tables
+python run_sims.py              # ~60 s, writes figs/ and results/results.json
 ```
 
 Downloading the repository as a ZIP and running `cd simulasi && python
 simulasi_agv.py` reproduces the report numbers on any machine with Python.
 
-## Repository layout
+## What is in the repository
 
 ```
-index.html            web UI (canvas, no external libraries)
-api/simulate.py       Python function: plant, controllers, metrics, figure renderer
-dev_server.py         local server (static files + /api/simulate), same router as Vercel
-pyproject.toml        Vercel entrypoint + dependency declaration
-requirements.txt      numpy, matplotlib
-simulasi/             CLI simulation that produces every number in the report
+index.html            web page (canvas, no external libraries)
+api/simulate.py       plant, controllers, metrics and the figure renderer
+dev_server.py         local server, same routing as the hosted version
+simulasi/             command-line simulation behind the report tables
   agv/                params, plant (RK4), control, sim, metrics
-  simulasi_agv.py     single-file, dependency-free CLI simulation
+  simulasi_agv.py     single-file, dependency-free simulation
   run_sims.py         full scenario matrix -> figures + results.json
 ```
 
-## Deployment
+## Notes
 
-1. Import the repository at [vercel.com/new](https://vercel.com/new).
-2. Framework preset **Other**; leave Build Command and Output Directory empty.
-3. Deploy. `api/simulate.py` is detected as a Python function; `simulasi/` is
-   excluded from the deployment.
+- One request runs one complete simulation; there is no streaming.
+- JSON answers take about half a second; a figure takes 1–4 s, plus a few seconds
+  on the first request while numpy and matplotlib load.
+- Physical parameters are fixed at the values extracted from the CAD model and the
+  motor datasheet; only mass and friction are exposed on the page.
+- The heading channel has a Coulomb deadband of about 0.56 V, which is why the
+  sinusoid response lags.
 
-Dependencies must be declared under `[project].dependencies` in
-`pyproject.toml`: this project is built from `pyproject.toml` (because of
-`[tool.vercel] entrypoint`), so a bare `requirements.txt` is not installed and
-the figure route fails with `No module named matplotlib`.
+## Credits and licence
 
-## Notes and limitations
-
-- One request runs one full simulation; there is no streaming or websocket.
-- JSON answers take ~0.5 s. Figure requests take 1–4 s, and a cold function needs
-  a few seconds more while numpy and matplotlib are imported.
-- Physical parameters are fixed at the values extracted from the CAD model and
-  the motor datasheet; only mass and friction are exposed in the UI.
-- The heading channel shows a Coulomb deadband of ≈0.56 V, which explains the
-  phase lag visible in sinusoidal tracking.
-
-## License
-
-Coursework, TF4107 Mechatronics Project 2. Code provided for academic review.
+Kalila Effie Abida (13323075) · Aliya Lathifa Putri (13723069) · Nurul Na'im Natifah (18223106)
+TF4107 Robotics and Automation — Project 2. Code provided for academic review.
