@@ -122,13 +122,26 @@ index.html            web UI (canvas, no external libraries)
 requirements.txt      numpy + matplotlib, needed only by ?gambar= rendering
 api/simulate.py       Python serverless engine: plant, controllers, metrics
 dev_server.py         local server (static files + /api/simulate)
-simulasi/             desktop/CLI sources and report generators
+simulasi/             CLI simulation that produces every number in the report
   agv/                params, plant (RK4), control, sim, metrics
   simulasi_agv.py     single-file, dependency-free CLI simulation
-  run_sims.py         full scenario matrix → figures + results.json
-  make_report.py      builds the Word/PDF report from results.json
-  make_flow.py        control-algorithm flowcharts
+  run_sims.py         full scenario matrix -> figures + results.json
 ```
+
+## Running the simulation code only
+
+The `simulasi/` folder is the code behind the report tables. It is excluded from
+the deployment (`.vercelignore`) and needs no web stack:
+
+```bash
+cd simulasi
+python simulasi_agv.py        # Python 3.8+, no packages, prints the metric tables
+pip install -r requirements.txt
+python run_sims.py            # ~60 s, writes figs/ and results/results.json
+```
+
+Downloading the repository as a ZIP and running `cd simulasi && python
+simulasi_agv.py` reproduces the report numbers on any machine with Python.
 
 ## Deployment
 

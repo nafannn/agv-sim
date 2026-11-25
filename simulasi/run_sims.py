@@ -475,6 +475,7 @@ scen_speed = [
     ("multi", ref_speed_multi, 7.0, None),
     ("ramp", ref_speed_ramp, 6.0, None),
     ("load", ref_speed_step, 6.0, dist_load),
+    ("rpm500", ref_speed_low, 5.0, None),
 ]
 runs_speed = {}
 out["s6"]["A"] = {}
@@ -493,9 +494,10 @@ for name, ref, t_end, dist in scen_speed:
                         "iae", "rmse")} | effort_metrics(tr_s.t, tr_s.VL, tr_s.VR),
     }
 
-fig, ax = plt.subplots(2, 2, figsize=(7.2, 5.4))
+fig, ax = plt.subplots(2, 3, figsize=(9.8, 5.7))
 titles = {"step": "(a) tangga 0 → 0,35 m/s", "multi": "(b) referensi bertingkat",
-          "ramp": "(c) referensi ramp", "load": "(d) gangguan beban 1,5 N"}
+          "ramp": "(c) referensi ramp", "load": "(d) gangguan beban 1,5 N",
+          "rpm500": "(e) 500 rpm motor (0,0347 m/s)"}
 for k, (name, _, _, _) in enumerate(scen_speed):
     a = ax.flat[k]
     tr_p, tr_s = runs_speed[name]
@@ -504,10 +506,13 @@ for k, (name, _, _, _) in enumerate(scen_speed):
     a.plot(tr_s.t, tr_s.v, label="SF + integral")
     a.set_title(titles[name])
     a.set_xlabel("waktu [s]")
-    if k % 2 == 0:
+    if k % 3 == 0:
         a.set_ylabel(r"$v$ [m/s]")
-    a.legend(loc="lower right", fontsize=7)
-fig.tight_layout()
+for j in range(len(scen_speed), ax.size):
+    ax.flat[j].axis("off")
+h_, l_ = ax.flat[0].get_legend_handles_labels()
+fig.legend(h_, l_, loc="lower center", ncol=3, fontsize=8.5, frameon=False)
+fig.tight_layout(rect=(0, 0.045, 1, 1))
 fig.savefig(os.path.join(FIG, "6_A_speed.png"))
 plt.close(fig)
 
@@ -551,8 +556,9 @@ for k, (name, _, _) in enumerate(scen_pos):
     a.set_xlabel("waktu [s]")
     if k % 2 == 0:
         a.set_ylabel(r"$\psi$ [derajat]")
-    a.legend(loc="lower right", fontsize=7)
-fig.tight_layout()
+h_, l_ = ax.flat[0].get_legend_handles_labels()
+fig.legend(h_, l_, loc="lower center", ncol=3, fontsize=8.5, frameon=False)
+fig.tight_layout(rect=(0, 0.05, 1, 1))
 fig.savefig(os.path.join(FIG, "6_B_pos.png"))
 plt.close(fig)
 
@@ -595,18 +601,18 @@ for name, pv in perturb:
     rob_norm.append(row)
 out["s6"]["C"] = rob
 
-# derau sensor
+# derau sensor (tabel tersendiri, Tabel 6.7)
 noise = {"v": 0.01, "psi": 1e-3, "w": 0.02}
+out["s6"]["C_noise"] = {}
 for lab, kind in [("PID", C_PID), ("SF", C_SF)]:
     tr = simulate(P, make_ctrl(kind), 5.0, ref_speed_step, noise=noise)
     mv = step_metrics(tr.t, tr.v, tr.v_ref, 0.5)
-    out["s6"]["C"].append({"case": f"derau sensor ({lab})",
-                           lab: {"ts_v": float(mv["settling_time"]),
-                                 "OS_v": float(mv["overshoot_pct"]),
-                                 "ess_v": float(mv["error_rel_pct"]),
-                                 "ts_psi": None, "OS_psi": None,
-                                 "ess_psi_deg": None,
-                                 "rms_V": float(np.sqrt(np.mean(np.vstack([tr.VL, tr.VR]) ** 2)))}})
+    out["s6"]["C_noise"][lab] = {
+        "ts_v": float(mv["settling_time"]),
+        "OS_v": float(mv["overshoot_pct"]),
+        "ess_v": float(mv["error_rel_pct"]),
+        "rms_V": float(np.sqrt(np.mean(np.vstack([tr.VL, tr.VR]) ** 2))),
+    }
 
 # grafik ringkas robustness: settling time kecepatan
 labels = [r["case"] for r in rob_norm]
