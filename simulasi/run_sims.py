@@ -268,7 +268,12 @@ def _menu():
     for i, (k, n) in enumerate(BAGIAN, 1):
         print(f"  {i}) {k:4s} {n}")
     print("  a) semua")
-    jawab = input("\nPilih nomor atau kode (pisah koma, Enter = semua): ").strip()
+    try:
+        jawab = input("\nPilih nomor atau kode (pisah koma, Enter = semua): ").strip()
+    except EOFError:
+        print()
+        print("(tidak ada input; menjalankan semua)")
+        return set(_KUNCI)
     if not jawab or jawab.lower() in ("a", "semua", "all"):
         return set(_KUNCI)
     pilih = set()
@@ -285,9 +290,10 @@ def _menu():
 def _tentukan_pilihan():
     ap = _argparse.ArgumentParser(
         description="Simulasi AGV: jalankan semua bagian atau pilih beberapa.",
-        epilog="Contoh: python run_sims.py --bagian 4.6,6A  |  python run_sims.py --pilih")
+        epilog="Tanpa argumen: menu pilihan. Contoh lain: python run_sims.py --bagian 4.6,6A | python run_sims.py --semua")
     ap.add_argument("--bagian", metavar="KODE", help="dipisah koma: 4.6,4.7,5.7,6A,6B,6C,6D")
-    ap.add_argument("--pilih", action="store_true", help="tanya interaktif bagian mana")
+    ap.add_argument("--semua", action="store_true", help="jalankan semua bagian tanpa menu")
+    ap.add_argument("--pilih", action="store_true", help="tanya interaktif bagian mana (default)")
     ap.add_argument("--daftar", action="store_true", help="tampilkan daftar bagian lalu keluar")
     a = ap.parse_args()
     if a.daftar:
@@ -295,7 +301,9 @@ def _tentukan_pilihan():
         for k, n in BAGIAN:
             print(f"  {k:4s} {n}")
         raise SystemExit(0)
-    if a.pilih:
+    if a.semua:
+        return set(_KUNCI)
+    if a.pilih or not a.bagian:
         return _menu()
     if a.bagian:
         pilih = {b.strip().upper() for b in a.bagian.split(",") if b.strip()}

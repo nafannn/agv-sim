@@ -116,9 +116,10 @@ simulasi_agv.py` reproduces the report numbers on any machine with Python.
 To run only part of the matrix:
 
 ```bash
+python run_sims.py                     # interactive menu (Enter = everything)
 python run_sims.py --daftar            # list the section codes
-python run_sims.py --bagian 4.6,6A     # run a subset
-python run_sims.py --pilih             # interactive menu
+python run_sims.py --bagian 4.6,6A     # run a subset directly
+python run_sims.py --semua             # everything, no menu (for scripts)
 ```
 
 Sections that depend on another one pull it in automatically (for example `6A`

@@ -26,14 +26,15 @@ Opsi: `--skenario psi90` · `--kontroler sf` · `--bandingkan` · `--csv folder`
 Tidak harus semuanya. Ada tiga cara:
 
 ```bash
+python run_sims.py                     # menu interaktif (pilih nomor, Enter = semua)
 python run_sims.py --daftar            # lihat kode bagian yang tersedia
-python run_sims.py --bagian 4.6,6A     # hanya dua bagian itu
-python run_sims.py --pilih             # menu interaktif, pilih nomor
+python run_sims.py --bagian 4.6,6A     # langsung jalankan dua bagian itu
+python run_sims.py --semua             # semua tanpa menu (untuk skrip)
 ```
 
 Kode bagian: `4.6` kontrol kecepatan, `4.7` kontrol posisi, `5.7` state feedback,
 `6A` perbandingan kecepatan, `6B` perbandingan posisi, `6C` robustness,
-`6D` variasi motor. Tanpa argumen = semua.
+`6D` variasi motor.
 
 Beberapa bagian memakai hasil bagian lain, jadi ikut dijalankan otomatis dan
 diberitahukan di layar (mis. `6A` butuh `4.6`, `4.7`, dan `5.7`). Bila yang
